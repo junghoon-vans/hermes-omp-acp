@@ -30,12 +30,7 @@ Set `OMP_INTEGRATION_COMMAND` to an absolute executable path to test a specific 
 
 These tests run real Hermes and OMP against a local OpenAI-compatible model endpoint. The endpoint requests a native file read and returns the value delivered by that tool result. The tests check model-picker visibility, model selection, async stream boundaries, and CLI output. Each scenario uses temporary Hermes and OMP homes and needs no external credentials.
 
-CI has two lanes: the pinned minimum combination and the latest stable combination. The latest lane resolves Hermes's latest non-prerelease GitHub release and installs OMP's npm `latest` version; the resolved source SHA and executable versions appear in the logs. The minimum lane uses Python 3.11 and the latest lane uses Python 3.14.
-
-### Minimum-version boundaries
-
-- Hermes 0.21.4 adds generic external-process provider selection and setup. Earlier direct-provider runtime support alone does not cover the model picker. Its release tag is [`v2026.9.21`](https://github.com/NousResearch/hermes-agent/releases/tag/v2026.9.21).
-- OMP 15.0.0 adds the [`omp acp` subcommand](https://github.com/can1357/oh-my-pi/commit/275108974aa96f97931fca8353d4f517fd018b00). OMP 14.9.9 only exposes the older `--mode acp` route.
+CI uses the latest stable Hermes and OMP releases with Python 3.14. See [Verification](docs/verification.md) for the CI scope and minimum-version boundaries. Recheck the documented minimum combination locally when changing compatibility-sensitive code.
 
 ## Build distributions
 

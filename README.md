@@ -8,7 +8,7 @@ Hermes sends model requests to `omp acp`, and OMP handles inference with its con
 
 - **Hermes Agent 0.21.4 or later** ([release `v2026.9.21`](https://github.com/NousResearch/hermes-agent/releases/tag/v2026.9.21)).
 - **OMP 15.0.0 or later**, with `omp` on the Hermes process's `PATH` and a configured model.
-- **Python 3.11 or later**, using a version supported by your Hermes release. Hermes 0.22.x requires Python 3.14.
+- **Python matching Hermes:** 3.11–3.13 for Hermes 0.21.4; 3.14 for Hermes 0.22.x.
 
 ## Quick start
 
@@ -70,32 +70,11 @@ Install Hermes and OMP separately. The Python package has not been published to 
 
 These variables must be available to the Hermes process, including a gateway launched as a service.
 
-## How it works
+## Documentation
 
-- Registers the `omp-acp` provider through Hermes's external-process model-provider interface.
-- Launches `omp acp` and discovers its available models through ACP.
-- Reuses Hermes's `CopilotACPClient` for transport, message conversion, and tool-call bridging.
-- Adapts the synchronous client for Hermes's async callers by running requests in a worker thread.
-
-### Runtime behavior
-
-Each completion opens a new OMP process and ACP session, sending the conversation history with the request. Responses are buffered before being returned as completion objects or stream chunks.
-
-Native ACP permission requests receive a `cancelled` response from the inherited Hermes client.
-
-The plugin depends on Hermes's internal `CopilotACPClient` API. CI pins the upstream versions used in its compatibility matrix.
-
-## Troubleshooting
-
-- **Executable unavailable:** check `command -v omp` in the environment that launches Hermes. For a gateway service, set `HERMES_OMP_ACP_COMMAND` to the executable's absolute path.
-- **Provider missing:** confirm the plugin is installed under the active profile's `HERMES_HOME`. For a Python package installation, confirm it is installed in Hermes's Python environment and enabled in `plugins.enabled`.
-- **Model discovery or inference fails:** confirm OMP authentication works and the selected model is available to that account.
-
-## Verification
-
-[CI](https://github.com/junghoon-vans/hermes-omp-acp/actions) runs the minimum combination and the latest stable Hermes/OMP combination.
-
-Native integration tests use a local OpenAI-compatible model endpoint to exercise provider discovery, model-picker availability, model selection, async responses, native file reading, and Hermes CLI output without external credentials.
+- [How it works](docs/implementation.md)
+- [Troubleshooting](docs/troubleshooting.md)
+- [Verification](docs/verification.md)
 
 ## Contributing
 
