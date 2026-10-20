@@ -1,0 +1,34 @@
+name: Provider compatibility
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compatibility:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.14"
+      - name: Build distributions
+        run: uv build
+      - uses: actions/checkout@v4
+        with:
+          repository: NousResearch/hermes-agent
+          ref: e06df9c2eae6901f4c88f464e0ae6e753c0428b8
+          path: .hermes-upstream
+      - name: Prepare the official Hermes runtime
+        run: uv sync --project .hermes-upstream --extra acp --locked --no-install-project
+      - name: Install the provider wheel
+        run: uv pip install --python .hermes-upstream/.venv/bin/python --no-deps dist/*.whl
+      - name: Exercise the installed provider through Hermes
+        run: |
+          export PYTHONPATH="$GITHUB_WORKSPACE/.hermes-upstream"
+          uv run --project .hermes-upstream --no-sync python -P -m unittest discover -s tests -v
