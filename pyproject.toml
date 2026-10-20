@@ -6,7 +6,13 @@ build-backend = "hatchling.build"
 name = "hermes-omp-acp"
 version = "0.1.0"
 description = "Standalone Hermes model provider for native Oh My Pi ACP sessions"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
+
+[project.urls]
+Repository = "https://github.com/junghoon-vans/hermes-omp-acp"
 
 [project.entry-points."hermes_agent.plugins"]
 omp-acp = "hermes_omp_acp.provider:register"
