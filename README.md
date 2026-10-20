@@ -8,7 +8,7 @@ Hermes sends model requests to `omp acp`, and OMP handles inference with its con
 
 - Hermes with model-provider plugin support and `agent.copilot_acp_client` available.
 - `omp` on the Hermes process's `PATH`, with native `omp acp` support and working model authentication.
-- Access to this repository. It is currently private; the clone command below uses GitHub SSH authentication.
+- Access to this repository. It is currently private; the installation command below uses GitHub SSH authentication.
 
 Verified locally with Hermes **v0.22.0**, OMP **18.12.1**, and Python **3.14**. Compatibility with other versions has not been verified.
 
@@ -16,15 +16,13 @@ Verified locally with Hermes **v0.22.0**, OMP **18.12.1**, and Python **3.14**. 
 
 ### 1. Install the plugin
 
-Clone the plugin into your Hermes profile's model-provider directory:
+Install the plugin with Hermes:
 
 ```sh
-plugin_dir="${HERMES_HOME:-$HOME/.hermes}/plugins/model-providers"
-mkdir -p "$plugin_dir"
-git clone git@github.com:junghoon-vans/hermes-omp-acp.git "$plugin_dir/omp-acp"
+hermes plugins install git@github.com:junghoon-vans/hermes-omp-acp.git
 ```
 
-Use the appropriate `HERMES_HOME` for each Hermes profile that should load the plugin.
+Run the command for the Hermes profile that should load the plugin. For a named profile, use `hermes -p <profile> plugins install git@github.com:junghoon-vans/hermes-omp-acp.git`.
 
 ### 2. Select a model
 
@@ -61,9 +59,9 @@ From a checkout, install into the **same Python environment that runs Hermes**:
 python -m pip install .
 ```
 
-The package exposes the `hermes_agent.plugins` entry point `omp-acp`. Enable it through the `plugins.enabled` configuration shown above. Choose either the Python package or filesystem installation.
+The package exposes the `hermes_agent.plugins` entry point `omp-acp`. Enable it through the `plugins.enabled` configuration shown above. Use this as an alternative to the Hermes installation command.
 
-Install Hermes and OMP separately. Install this plugin from a checkout until a PyPI release is available.
+Install Hermes and OMP separately. The Python package has not been published to PyPI yet.
 
 ## Configuration
 
