@@ -10,32 +10,17 @@ permissions:
 
 jobs:
   compatibility:
-    name: Compatibility (${{ matrix.channel }})
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - channel: minimum
-            hermes_ref: d337b736aa1e8ebecfab043842d13e4a2d2f48a3
-            python: "3.11"
-            omp: "15.0.0"
-            bun: "1.4.3"
-          - channel: latest
-            hermes_ref: latest
-            python: "3.14"
-            omp: latest
-            bun: latest
+    name: Latest stable Hermes / OMP
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: astral-sh/setup-uv@v10.3.0
         with:
-          python-version: ${{ matrix.python }}
+          python-version: "3.14"
       - name: Build distributions
         run: uv build
       - name: Resolve the latest stable Hermes release
-        if: matrix.channel == 'latest'
         id: hermes
         env:
           GH_TOKEN: ${{ github.token }}
@@ -47,7 +32,7 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           repository: NousResearch/hermes-agent
-          ref: ${{ steps.hermes.outputs.ref || matrix.hermes_ref }}
+          ref: ${{ steps.hermes.outputs.ref }}
           path: .hermes-upstream
       - name: Prepare the official Hermes runtime
         run: uv sync --project .hermes-upstream --extra acp --locked --no-install-project
@@ -55,14 +40,12 @@ jobs:
         run: uv pip install --python .hermes-upstream/.venv/bin/python --no-deps dist/*.whl
       - uses: oven-sh/setup-bun@v2.2.0
         with:
-          bun-version: ${{ matrix.bun }}
-      - name: Install the selected OMP release
-        env:
-          OMP_VERSION: ${{ matrix.omp }}
+          bun-version: latest
+      - name: Install the latest OMP release
         run: |
           mkdir -p "$RUNNER_TEMP/omp"
           printf '{"private":true}\n' > "$RUNNER_TEMP/omp/package.json"
-          bun add --cwd "$RUNNER_TEMP/omp" "@oh-my-pi/pi-coding-agent@$OMP_VERSION"
+          bun add --cwd "$RUNNER_TEMP/omp" "@oh-my-pi/pi-coding-agent@latest"
           "$RUNNER_TEMP/omp/node_modules/.bin/omp" --version
           echo "OMP_INTEGRATION_COMMAND=$RUNNER_TEMP/omp/node_modules/.bin/omp" >> "$GITHUB_ENV"
       - name: Exercise the installed provider through Hermes

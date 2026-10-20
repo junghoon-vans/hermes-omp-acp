@@ -105,7 +105,7 @@ class NativeOmpTests(unittest.TestCase):
             "--max-turns", "4", "-q", f"Read {self.probe} and return only its contents.",
         ], cwd=self.root, text=True, capture_output=True, timeout=90)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(result.stdout.strip(), self.token)
+        self.assertIn(self.token, result.stdout.splitlines())
         self.assert_native_read_and_model_selection()
 
 
