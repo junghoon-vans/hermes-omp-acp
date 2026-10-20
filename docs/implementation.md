@@ -9,6 +9,6 @@
 
 Each completion opens a new OMP process and ACP session, sending the conversation history with the request. Responses are buffered before being returned as completion objects or stream chunks.
 
-Native ACP permission requests receive a `cancelled` response from the inherited Hermes client.
+Native ACP approval requests use the inherited Hermes handler. See [Known limitations](limitations.md#native-acp-approval-requests) for its behavior and the write-verification boundary.
 
 The plugin depends on Hermes's internal `CopilotACPClient` API. Upstream compatibility is checked through the scenarios described in [Verification](verification.md).

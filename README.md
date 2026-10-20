@@ -12,15 +12,16 @@ Hermes sends model requests to `omp acp`, and OMP handles inference with its con
 
 ## Quick start
 
-### 1. Install the plugin
+### 1. Install and enable the plugin
 
-Install the plugin with Hermes:
+Install and enable the plugin with Hermes:
 
 ```sh
 hermes plugins install git@github.com:junghoon-vans/hermes-omp-acp.git
+hermes plugins enable omp-acp
 ```
 
-Run the command for the Hermes profile that should load the plugin. For a named profile, use `hermes -p <profile> plugins install git@github.com:junghoon-vans/hermes-omp-acp.git`.
+Run both commands for the Hermes profile that should load the plugin. For a named profile, prefix the commands with `hermes -p <profile>`.
 
 ### 2. Select a model
 
@@ -32,13 +33,9 @@ model:
   default: openai-codex/gpt-6.1-sol
   base_url: acp://omp
   api_mode: chat_completions
-
-plugins:
-  enabled:
-    - omp-acp
 ```
 
-Replace the example model with a `provider/model` ID available to your OMP account. Preserve any other entries in `plugins.enabled`. `acp://omp` identifies the subprocess backend; it is not a network endpoint.
+Replace the example model with a `provider/model` ID available to your OMP account. `acp://omp` identifies the subprocess backend; it is not a network endpoint.
 
 ### 3. Send a request
 
@@ -57,7 +54,7 @@ From a checkout, install into the **same Python environment that runs Hermes**:
 python -m pip install .
 ```
 
-The package exposes the `hermes_agent.plugins` entry point `omp-acp`. Enable it through the `plugins.enabled` configuration shown above. Use this as an alternative to the Hermes installation command.
+The package exposes the `hermes_agent.plugins` entry point `omp-acp`. Use the same activation command from step 1 after installing it. This package route is an alternative to the Hermes installation command.
 
 Install Hermes and OMP separately. The Python package has not been published to PyPI yet.
 
@@ -73,6 +70,7 @@ These variables must be available to the Hermes process, including a gateway lau
 ## Documentation
 
 - [How it works](docs/implementation.md)
+- [Known limitations](docs/limitations.md)
 - [Troubleshooting](docs/troubleshooting.md)
 - [Verification](docs/verification.md)
 
