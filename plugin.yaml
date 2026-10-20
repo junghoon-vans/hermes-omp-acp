@@ -1,0 +1,5 @@
+name: omp-acp
+kind: model-provider
+version: 0.1.0
+description: Use Oh My Pi as a Hermes model backend over native ACP.
+author: junghoon-vans

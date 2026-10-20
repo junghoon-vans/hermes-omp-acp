@@ -1,0 +1,15 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "hermes-omp-acp"
+version = "0.1.0"
+description = "Standalone Hermes model provider for native Oh My Pi ACP sessions"
+requires-python = ">=3.11"
+
+[project.entry-points."hermes_agent.plugins"]
+omp-acp = "hermes_omp_acp.provider:register"
+
+[tool.hatch.build.targets.wheel]
+packages = ["hermes_omp_acp"]
