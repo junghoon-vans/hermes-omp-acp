@@ -108,6 +108,33 @@ class NativeOmpTests(unittest.TestCase):
         self.assertIn(self.token, result.stdout.splitlines())
         self.assert_native_read_and_model_selection()
 
+    def test_gateway_style_agent_resolves_omitted_launch_arguments(self):
+        result_path = self.root / "agent-result.json"
+        script = """
+import json
+from contextlib import closing
+from pathlib import Path
+import sys
+from run_agent import AIAgent
+
+with closing(AIAgent(provider="omp-acp", model="fixture/model-b",
+                     api_key="omp-acp", base_url="acp://omp",
+                     quiet_mode=True, max_iterations=4)) as agent:
+    result = agent.run_conversation(sys.argv[1])
+Path(sys.argv[2]).write_text(json.dumps({
+    "completed": result["completed"], "response": result["final_response"],
+}))
+"""
+        result = subprocess.run([
+            sys.executable, "-c", script,
+            f"Read {self.probe} and return only its contents.", str(result_path),
+        ], cwd=self.root, text=True, capture_output=True, timeout=90)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        response = json.loads(result_path.read_text())
+        self.assertTrue(response["completed"], result.stdout + result.stderr)
+        self.assertEqual(response["response"], self.token)
+        self.assert_native_read_and_model_selection()
+
 
 if __name__ == "__main__":
     unittest.main()

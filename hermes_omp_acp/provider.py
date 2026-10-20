@@ -14,7 +14,7 @@ class OmpACPProfile(ProviderProfile):
         if not client_kwargs.get("command"):
             credentials = resolve_external_process_provider_credentials(self.name)
             client_kwargs["command"] = credentials["command"]
-            client_kwargs.setdefault("args", credentials["args"])
+            client_kwargs["args"] = client_kwargs.get("args") or credentials["args"]
         client_kwargs.setdefault("api_key", self.name)
         client_kwargs.setdefault("base_url", self.base_url)
         return OmpACPClient(**client_kwargs)
