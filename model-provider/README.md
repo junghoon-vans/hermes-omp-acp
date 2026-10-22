@@ -75,6 +75,15 @@ hermes plugins enable omp-acp-provider
 
 Removing the old plugin deletes its installed code, not your Hermes profile or OMP authentication. Keep `model.provider: omp-acp`, the model ID, `acp://omp`, and `HERMES_OMP_ACP_*` variables unchanged. Restart a running gateway using your normal procedure after migration.
 
+On Hermes 0.22.4, the managed dependency environment can retain an old `plugin-sources/omp-acp-...` path after removal. If activation fails with that missing-path error, use Hermes's official recovery commands, then retry:
+
+```sh
+hermes pm install
+hermes plugins enable omp-acp-provider
+```
+
+This recovery was verified on Hermes 0.22.4. It rebuilds Hermes's managed runtime and may download tools and dependencies; use it only on Hermes versions that provide `hermes pm`.
+
 Python-package users should upgrade from `model-provider/` as above and replace the old `omp-acp` item in `plugins.enabled` with `omp-acp-provider`. The Python distribution and import package names are unchanged. Any external installer must also select `model-provider/` and use the new plugin ID.
 
 ## Configuration
