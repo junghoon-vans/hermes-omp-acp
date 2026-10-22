@@ -1,0 +1,34 @@
+name: omp-acp-delegator
+version: 2.0.0
+kind: standalone
+description: Delegate coding tasks to the installed OMP ACP server with retained worktrees and sessions.
+author: Junghoon Ban
+homepage: https://github.com/junghoon-vans/hermes-omp-acp/tree/main/delegator
+license: MIT
+requires_hermes: ">=0.21.0"
+provides_tools:
+  - omp_task
+  - omp_status
+  - omp_cancel
+provides_hooks:
+  - post_compaction
+  - on_session_end
+  - on_session_reset
+  - on_session_finalize
+config_schema:
+  allowed_roots:
+    type: list
+    required: true
+    default: []
+    description: Absolute existing directories containing repositories OMP may work on. Not an OS sandbox.
+  timeout:
+    type: int
+    default: 1800
+    description: Maximum duration of one OMP run in seconds.
+  omp_command:
+    type: str
+    default: omp
+    description: Installed OMP executable name or absolute path; launched with the acp subcommand.
+platforms:
+  - linux
+  - macos
