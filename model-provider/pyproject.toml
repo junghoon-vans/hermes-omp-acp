@@ -9,13 +9,14 @@ description = "Standalone Hermes model provider for native Oh My Pi ACP sessions
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
+authors = [{ name = "Junghoon Ban" }]
 requires-python = ">=3.11"
 
 [project.urls]
 Repository = "https://github.com/junghoon-vans/hermes-omp-acp"
 
 [project.entry-points."hermes_agent.plugins"]
-omp-acp = "hermes_omp_acp.provider:register"
+omp-acp-provider = "hermes_omp_acp.provider:register"
 
 [tool.hatch.build.targets.wheel]
 packages = ["hermes_omp_acp"]

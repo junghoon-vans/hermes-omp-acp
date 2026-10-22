@@ -43,7 +43,7 @@ class NativeOmpTests(unittest.TestCase):
         (hermes_home / "config.yaml").write_text(json.dumps({
             "model": {"provider": "omp-acp", "default": "fixture/model-b",
                       "base_url": "acp://omp", "api_mode": "chat_completions"},
-            "plugins": {"enabled": ["omp-acp"]},
+            "plugins": {"enabled": ["omp-acp-provider"]},
             "memory": {"memory_enabled": False, "user_profile_enabled": False},
         }))
         preserve = {
@@ -93,7 +93,23 @@ class NativeOmpTests(unittest.TestCase):
         asyncio.run(exercise())
         self.assert_native_read_and_model_selection()
 
+    def _stop_gateway(self):
+        script = """
+from gateway.status import get_running_pid
+from hermes_cli.gateway import stop_profile_gateway
+
+if get_running_pid() is not None:
+    stop_profile_gateway()
+assert get_running_pid() is None, "The test gateway did not stop"
+"""
+        result = subprocess.run(
+            [sys.executable, "-c", script], cwd=self.root,
+            text=True, capture_output=True, timeout=60,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_hermes_cli_discovers_the_provider_and_returns_native_tool_output(self):
+        self.addCleanup(self._stop_gateway)
         from hermes_cli.models import list_available_providers
 
         provider = next((entry for entry in list_available_providers() if entry["id"] == "omp-acp"), None)

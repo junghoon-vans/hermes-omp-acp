@@ -2,11 +2,12 @@
 
 ## Development setup
 
-Use the minimum versions in [README.md](README.md#requirements) and a Python version supported by your Hermes release. Install Hermes's `acp` extra for the test peer's `agent-client-protocol` dependency. See the [compatibility workflow](.github/workflows/ci.yml) for exact upstream revisions and dependency setup.
+Use the minimum versions in [README.md](README.md#requirements) and a Python version supported by your Hermes release. Install Hermes's `acp` extra for the test peer's `agent-client-protocol` dependency. See the [compatibility workflow](../.github/workflows/ci.yml) for exact upstream revisions and dependency setup.
 
-From a checkout, install the plugin into that environment:
+From the repository root, enter the provider directory and install the plugin into that environment:
 
 ```sh
+cd model-provider
 python -m pip install -e .
 ```
 
