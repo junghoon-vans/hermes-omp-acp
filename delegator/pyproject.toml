@@ -18,7 +18,7 @@ Homepage = "https://github.com/junghoon-vans/hermes-omp-acp/tree/main/delegator"
 Repository = "https://github.com/junghoon-vans/hermes-omp-acp"
 
 [project.entry-points."hermes_agent.plugins"]
-omp-acp-delegator = "hermes_omp_delegator:register"
+omp-acp-delegator = "hermes_omp_delegator"
 
 [tool.hatch.build.targets.wheel]
 only-include = ["__init__.py", "config.py", "worker.py", "transport.py"]
