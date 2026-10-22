@@ -1,83 +1,34 @@
 # hermes-omp-acp
 
-Use [Hermes Agent](https://github.com/NousResearch/hermes-agent) with Oh My Pi (OMP) as its model backend through native ACP.
+Hermes plugins for integrating [Oh My Pi (OMP)](https://github.com/can1357/oh-my-pi) through ACP.
 
-Hermes sends model requests to `omp acp`, and OMP handles inference with its configured models and credentials.
+## Plugins
 
-## Requirements
+| Directory | Plugin ID | Purpose |
+| --- | --- | --- |
+| [model-provider](model-provider/README.md) | `omp-acp` | Use OMP as Hermes's model backend through native ACP. |
 
-- **Hermes Agent 0.21.4 or later** ([release `v2026.9.21`](https://github.com/NousResearch/hermes-agent/releases/tag/v2026.9.21)).
-- **OMP 15.0.0 or later**, with `omp` on the Hermes process's `PATH` and a configured model.
-- **Python matching Hermes:** 3.11–3.13 for Hermes 0.21.4; 3.14 for Hermes 0.22.x.
+Each plugin directory contains its own manifest, Python package metadata, implementation, license, documentation, and tests. Install individual directories, not the repository root.
 
-## Quick start
-
-### 1. Install and enable the plugin
-
-Install and enable the plugin with Hermes:
+## Install the model provider
 
 ```sh
-hermes plugins install git@github.com:junghoon-vans/hermes-omp-acp.git
+hermes plugins install junghoon-vans/hermes-omp-acp/model-provider
 hermes plugins enable omp-acp
 ```
 
-Run both commands for the Hermes profile that should load the plugin. For a named profile, prefix the commands with `hermes -p <profile>`.
+The repository is private; installation requires GitHub access. See the [provider guide](model-provider/README.md) for requirements, model selection, profile setup, and inherited ACP permission limitations.
 
-### 2. Select a model
+## Existing installations
 
-In that profile's `config.yaml`, merge the following settings into your existing configuration:
+Installations sourced from the old repository root need to switch to the `model-provider` subdirectory. Follow the [provider migration instructions](model-provider/README.md#existing-installations); the existing provider ID and model settings are retained.
 
-```yaml
-model:
-  provider: omp-acp
-  default: openai-codex/gpt-6.1-sol
-  base_url: acp://omp
-  api_mode: chat_completions
-```
+## Development
 
-Replace the example model with a `provider/model` ID available to your OMP account. `acp://omp` identifies the subprocess backend; it is not a network endpoint.
+See [provider development](model-provider/CONTRIBUTING.md) for environment setup, tests, native OMP integration, and distribution builds. Repository CI builds the provider directory and exercises its installed wheel against upstream Hermes and OMP.
 
-### 3. Send a request
-
-```sh
-hermes chat --provider omp-acp --model openai-codex/gpt-6.1-sol \
-  --oneshot -q 'Reply with exactly OMP_OK. Do not use tools.'
-```
-
-For a running Hermes gateway, restart it after updating the configuration.
-
-### Python package alternative
-
-From a checkout, install into the **same Python environment that runs Hermes**:
-
-```sh
-python -m pip install .
-```
-
-The package exposes the `hermes_agent.plugins` entry point `omp-acp`. Use the same activation command from step 1 after installing it. This package route is an alternative to the Hermes installation command.
-
-Install Hermes and OMP separately. The Python package has not been published to PyPI yet.
-
-## Configuration
-
-| Environment variable | Default | Purpose |
-| --- | --- | --- |
-| `HERMES_OMP_ACP_COMMAND` | `omp` | Override the executable, for example with an absolute path. |
-| `HERMES_OMP_ACP_ARGS` | `acp` | Replace the complete argument list; parsed with shell-style quoting. Include `acp` when overriding. |
-
-These variables must be available to the Hermes process, including a gateway launched as a service.
-
-## Documentation
-
-- [How it works](docs/implementation.md)
-- [Known limitations](docs/limitations.md)
-- [Troubleshooting](docs/troubleshooting.md)
-- [Verification](docs/verification.md)
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, tests, builds, and pull request guidance.
+The provider ID `omp-acp`, Python package `hermes_omp_acp`, configuration keys, environment variables, and minimum supported versions are unchanged by the directory layout.
 
 ## License
 
-[MIT](LICENSE). Hermes and OMP remain subject to their own licenses.
+[MIT](LICENSE). Each installable plugin also includes its own license file.

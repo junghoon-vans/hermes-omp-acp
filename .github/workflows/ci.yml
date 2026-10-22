@@ -19,7 +19,7 @@ jobs:
         with:
           python-version: "3.14"
       - name: Build distributions
-        run: uv build
+        run: uv build model-provider --out-dir dist
       - name: Resolve the latest stable Hermes release
         id: hermes
         env:
@@ -51,8 +51,8 @@ jobs:
       - name: Exercise the installed provider through Hermes
         run: |
           export PYTHONPATH="$GITHUB_WORKSPACE/.hermes-upstream"
-          uv run --project .hermes-upstream --no-sync python -P -m unittest discover -s tests -v
+          uv run --project .hermes-upstream --no-sync python -P -m unittest discover -s model-provider/tests -v
       - name: Exercise native OMP model selection and file reading
         run: |
           export PYTHONPATH="$GITHUB_WORKSPACE/.hermes-upstream"
-          uv run --project .hermes-upstream --no-sync python -P -m unittest discover -s tests/integration -v
+          uv run --project .hermes-upstream --no-sync python -P -m unittest discover -s model-provider/tests/integration -v
