@@ -61,31 +61,6 @@ The package exposes the `hermes_agent.plugins` entry point `omp-acp-provider`. U
 
 Install Hermes and OMP separately. The Python package has not been published to PyPI yet.
 
-## Existing installations
-
-The repository root is no longer an installable plugin, and the plugin ID is now `omp-acp-provider` rather than `omp-acp`. The model provider ID remains `omp-acp`.
-
-For a Git-installed copy under the old plugin ID, finish active requests and back up local edits inside its checkout. Install the new plugin disabled, remove the old plugin to avoid registering the same model provider twice, then enable the new ID:
-
-```sh
-hermes plugins install junghoon-vans/hermes-omp-acp/model-provider --no-enable
-hermes plugins remove omp-acp
-hermes plugins enable omp-acp-provider
-```
-
-Removing the old plugin deletes its installed code, not your Hermes profile or OMP authentication. Keep `model.provider: omp-acp`, the model ID, `acp://omp`, and `HERMES_OMP_ACP_*` variables unchanged. Restart a running gateway using your normal procedure after migration.
-
-On Hermes 0.22.4, the managed dependency environment can retain an old `plugin-sources/omp-acp-...` path after removal. If activation fails with that missing-path error, use Hermes's official recovery commands, then retry:
-
-```sh
-hermes pm install
-hermes plugins enable omp-acp-provider
-```
-
-This recovery was verified on Hermes 0.22.4. It rebuilds Hermes's managed runtime and may download tools and dependencies; use it only on Hermes versions that provide `hermes pm`.
-
-Python-package users should upgrade from `model-provider/` as above and replace the old `omp-acp` item in `plugins.enabled` with `omp-acp-provider`. The Python distribution and import package names are unchanged. Any external installer must also select `model-provider/` and use the new plugin ID.
-
 ## Configuration
 
 | Environment variable | Default | Purpose |
@@ -108,4 +83,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, tests, builds, and
 
 ## License
 
-[MIT](LICENSE). Hermes and OMP remain subject to their own licenses.
+[MIT](https://github.com/junghoon-vans/hermes-omp-acp/blob/main/LICENSE), maintained at the repository root. Hermes and OMP remain subject to their own licenses.
