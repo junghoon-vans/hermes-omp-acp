@@ -1,5 +1,5 @@
 name: omp-acp-delegator
-version: 2.0.0
+version: 0.1.0
 kind: standalone
 description: Delegate coding tasks to the installed OMP ACP server with retained worktrees and sessions.
 author: Junghoon Ban

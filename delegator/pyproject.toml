@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "hermes-omp-acp-delegator"
-version = "2.0.0"
+version = "0.1.0"
 description = "Standalone Hermes plugin for delegating coding tasks to Oh My Pi over ACP"
 readme = "README.md"
 license = "MIT"

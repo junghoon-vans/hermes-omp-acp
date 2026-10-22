@@ -174,7 +174,7 @@ async def run_omp_session(
                 connection.initialize(
                     PROTOCOL_VERSION,
                     client_capabilities=capabilities,
-                    client_info=Implementation(name="hermes-omp-acp-delegator", version="2.0.0"),
+                    client_info=Implementation(name="hermes-omp-acp-delegator", version="0.1.0"),
                 ),
                 "initialize",
                 connection,
