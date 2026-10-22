@@ -20,7 +20,9 @@ jobs:
         with:
           python-version: "3.14"
       - name: Build distributions
-        run: uv build model-provider --out-dir dist
+        run: |
+          cmp LICENSE model-provider/LICENSE
+          uv build model-provider --out-dir dist
       - name: Resolve the latest stable Hermes release
         id: hermes
         env:

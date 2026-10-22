@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Standalone Hermes model provider for native Oh My Pi ACP sessions"
 readme = "README.md"
 license = "MIT"
+license-files = ["LICENSE"]
 authors = [{ name = "Junghoon Ban" }]
 requires-python = ">=3.11"
 
