@@ -43,7 +43,7 @@ class NativeOmpTests(unittest.TestCase):
         (hermes_home / "config.yaml").write_text(json.dumps({
             "model": {"provider": "omp-acp", "default": "fixture/model-b",
                       "base_url": "acp://omp", "api_mode": "chat_completions"},
-            "plugins": {"enabled": ["omp-acp"]},
+            "plugins": {"enabled": ["omp-acp-provider"]},
             "memory": {"memory_enabled": False, "user_profile_enabled": False},
         }))
         preserve = {

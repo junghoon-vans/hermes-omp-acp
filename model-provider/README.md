@@ -18,10 +18,12 @@ Install and enable the plugin with Hermes:
 
 ```sh
 hermes plugins install junghoon-vans/hermes-omp-acp/model-provider
-hermes plugins enable omp-acp
+hermes plugins enable omp-acp-provider
 ```
 
 Run both commands for the Hermes profile that should load the plugin. For a named profile, prefix the commands with `hermes -p <profile>`.
+
+`omp-acp-provider` is the plugin ID used for installation and activation. `omp-acp` is the model provider ID used in model settings and `--provider`; do not replace it with the plugin ID.
 
 ### 2. Select a model
 
@@ -55,22 +57,25 @@ cd model-provider
 python -m pip install .
 ```
 
-The package exposes the `hermes_agent.plugins` entry point `omp-acp`. Use the same activation command from step 1 after installing it. This package route is an alternative to the Hermes installation command.
+The package exposes the `hermes_agent.plugins` entry point `omp-acp-provider`. Use the same activation command from step 1 after installing it. This package route is an alternative to the Hermes installation command.
 
 Install Hermes and OMP separately. The Python package has not been published to PyPI yet.
 
 ## Existing installations
 
-The repository root is no longer an installable plugin. If you installed from `junghoon-vans/hermes-omp-acp` or its root Git URL, reinstall from the provider subdirectory instead of updating the old source:
+The repository root is no longer an installable plugin, and the plugin ID is now `omp-acp-provider` rather than `omp-acp`. The model provider ID remains `omp-acp`.
+
+For a Git-installed copy under the old plugin ID, finish active requests and back up local edits inside its checkout. Install the new plugin disabled, remove the old plugin to avoid registering the same model provider twice, then enable the new ID:
 
 ```sh
-hermes plugins install junghoon-vans/hermes-omp-acp/model-provider --force
-hermes plugins enable omp-acp
+hermes plugins install junghoon-vans/hermes-omp-acp/model-provider --no-enable
+hermes plugins remove omp-acp
+hermes plugins enable omp-acp-provider
 ```
 
-Back up any local edits inside the old plugin checkout before switching sources: a different source is installed as a clean tree. The provider ID `omp-acp`, model configuration, `HERMES_OMP_ACP_*` variables, Python package name, and minimum versions remain unchanged. Do not delete your Hermes profile or OMP authentication. Restart a running gateway using your normal procedure after reinstalling.
+Removing the old plugin deletes its installed code, not your Hermes profile or OMP authentication. Keep `model.provider: omp-acp`, the model ID, `acp://omp`, and `HERMES_OMP_ACP_*` variables unchanged. Restart a running gateway using your normal procedure after migration.
 
-Python-package users can install from `model-provider/` as above. Any external installer that previously used the repository root as the plugin source must now select `model-provider/`.
+Python-package users should upgrade from `model-provider/` as above and replace the old `omp-acp` item in `plugins.enabled` with `omp-acp-provider`. The Python distribution and import package names are unchanged. Any external installer must also select `model-provider/` and use the new plugin ID.
 
 ## Configuration
 
