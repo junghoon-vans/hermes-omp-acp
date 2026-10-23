@@ -72,14 +72,14 @@ These variables must be available to the Hermes process, including a gateway lau
 
 ## Documentation
 
-- [How it works](docs/implementation.md)
-- [Known limitations](docs/limitations.md)
-- [Troubleshooting](docs/troubleshooting.md)
-- [Verification](docs/verification.md)
+- [How it works](../docs/model-provider/implementation.md)
+- [Known limitations](../docs/model-provider/limitations.md)
+- [Troubleshooting](../docs/model-provider/troubleshooting.md)
+- [Verification](../docs/model-provider/verification.md)
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, tests, builds, and pull request guidance.
+See [CONTRIBUTING.md](../CONTRIBUTING.md) for development setup, tests, builds, and pull request guidance.
 
 ## License
 

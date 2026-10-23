@@ -7,6 +7,7 @@ Hermes plugins for integrating [Oh My Pi (OMP)](https://github.com/can1357/oh-my
 | Directory | Plugin ID | Model provider ID | Purpose |
 | --- | --- | --- | --- |
 | [model-provider](model-provider/README.md) | `omp-acp-provider` | `omp-acp` | Use OMP as Hermes's model backend through native ACP. |
+| [delegator](delegator/README.md) | `omp-acp-delegator` | — | Delegate coding tasks to OMP in retained worktrees and ACP sessions. |
 
 Each plugin directory contains its own manifest, Python package metadata, implementation, documentation, and tests. Install individual directories, not the repository root.
 
@@ -19,11 +20,20 @@ hermes plugins enable omp-acp-provider
 
 The repository is private; installation requires GitHub access. See the [provider guide](model-provider/README.md) for requirements, model selection, profile setup, and inherited ACP permission limitations.
 
+## Install the delegator
+
+```sh
+hermes plugins install junghoon-vans/hermes-omp-acp/delegator
+hermes plugins enable omp-acp-delegator
+```
+
+Configure the allowed repository roots and enable the `omp-acp-delegator` toolset as described in the [delegator guide](delegator/README.md). Delegation is channel-independent and does not change Hermes's model backend.
+
 ## Development
 
-See [provider development](model-provider/CONTRIBUTING.md) for environment setup, tests, native OMP integration, and distribution builds. Repository CI builds the provider directory and exercises its installed wheel against upstream Hermes and OMP.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development, testing, compatibility, and build instructions; CI builds both distributions and checks their independent Hermes interfaces.
 
-The Python distribution is `hermes-omp-acp`, and its import package is `hermes_omp_acp`.
+The provider distribution is `hermes-omp-acp` (`hermes_omp_acp`); the delegator distribution is `hermes-omp-acp-delegator` (`hermes_omp_delegator`). Each module has its own dependencies and version.
 
 ## License
 
