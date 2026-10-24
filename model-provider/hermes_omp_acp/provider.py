@@ -28,7 +28,7 @@ class OmpACPProfile(ProviderProfile):
             return None
 
 
-def register():
+def register(*, scope=None):
     register_provider(OmpACPProfile(
         name="omp-acp",
         display_name="Oh My Pi (ACP)",
@@ -42,3 +42,11 @@ def register():
         process_command_env_vars=("HERMES_OMP_ACP_COMMAND",),
         process_args_env_var="HERMES_OMP_ACP_ARGS",
     ))
+
+    # Filesystem providers follow their profile's lifetime; an installed wheel's
+    # stateless backend is global and reads the active profile on each request.
+    from agent.delegation_registry import register_provider as register_delegation
+
+    from .delegation import OmpWorktreeDelegationProvider
+
+    register_delegation(OmpWorktreeDelegationProvider(), scope=scope)

@@ -51,6 +51,7 @@ class NativeOmpTests(unittest.TestCase):
             "HERMES_PYTHON", "HERMES_NODE", "HERMES_REVISION", "HERMES_INSTALL_ROOT",
             "HERMES_BUNDLED_LOCALES", "HERMES_OPTIONAL_MCPS", "HERMES_OPTIONAL_SKILLS",
             "HERMES_TUI_DIR", "HERMES_WEB_DIST", "PI_PACKAGE_DIR", "BUN_INSTALL",
+            "HERMES_ADVANCED_DELEGATION_SOURCE",
         }
         environment = {key: value for key, value in os.environ.items() if key in preserve}
         environment.update({
@@ -65,6 +66,9 @@ class NativeOmpTests(unittest.TestCase):
         isolation = patch.dict(os.environ, environment, clear=True)
         isolation.start()
         self.addCleanup(isolation.stop)
+        from hermes_logging import _reset_queued_handlers
+
+        self.addCleanup(_reset_queued_handlers)
         self.profile = get_provider_profile("omp-acp")
         self.assertIsNotNone(self.profile, "Hermes did not discover the installed provider")
 
@@ -150,6 +154,116 @@ Path(sys.argv[2]).write_text(json.dumps({
         self.assertTrue(response["completed"], result.stdout + result.stderr)
         self.assertEqual(response["response"], self.token)
         self.assert_native_read_and_model_selection()
+
+    def _workspace_routes(self, count=1):
+        source = os.environ.get("HERMES_ADVANCED_DELEGATION_SOURCE")
+        if not source:
+            raise RuntimeError("Set HERMES_ADVANCED_DELEGATION_SOURCE to the official advanced-delegation plugin")
+        repository = self.root / "repository"
+        repository.mkdir()
+        (repository / "probe.txt").write_text(self.token + "\n")
+        for arguments in (
+            ["init", "--quiet"],
+            ["add", "probe.txt"],
+            ["-c", "user.name=OMP integration", "-c", "user.email=check@example.invalid",
+             "commit", "--quiet", "-m", "initial"],
+        ):
+            subprocess.run(["git", "-C", str(repository), *arguments], check=True)
+        modified = "NATIVE_READ_" + secrets.token_hex(8)
+        endpoint = ModelEndpoint(Path("probe.txt"), replacement=modified)
+        self.addCleanup(endpoint.close)
+        models_path = self.root / "omp/models.yml"
+        models = json.loads(models_path.read_text())
+        models["providers"]["fixture"]["baseUrl"] = endpoint.url
+        models_path.write_text(json.dumps(models))
+
+        config_path = Path(os.environ["HERMES_HOME"]) / "config.yaml"
+        config = json.loads(config_path.read_text())
+        config["delegation"] = {
+            "backend": "omp-worktree",
+            "fallback_providers": [],
+            "backends": {
+                "omp-worktree": {"allowed_roots": [str(repository)]},
+                "model_map": {"default": "coder", "options": [{
+                    "name": "coder", "description": "Native OMP repository work",
+                    "provider": "omp-acp", "model": "fixture/model-b", "fallback_providers": [],
+                }]},
+            },
+        }
+        config["plugins"]["enabled"].append("advanced-delegation")
+        config_path.write_text(json.dumps(config))
+        plugins = config_path.parent / "plugins"
+        plugins.mkdir()
+        (plugins / "advanced-delegation").symlink_to(source, target_is_directory=True)
+        os.environ["TERMINAL_CWD"] = str(self.root)
+        from hermes_cli.plugins import get_plugin_manager
+        from tools.delegate_tool_routes import resolve_task_routes
+
+        manager = get_plugin_manager()
+        manager.discover_and_load(force=True)
+        self.addCleanup(manager.unload)
+        routes, error = resolve_task_routes([
+            {"goal": "Read, change and read back probe.txt", "option": "coder",
+             "repository": str(repository)}
+            for _ in range(count)
+        ], config["delegation"], None)
+        self.assertIsNone(error, {"error": error, "plugins": manager.list_plugins()})
+        self.assertFalse([route.error for route in routes if route.error])
+        return repository, modified, endpoint, routes
+
+    def _assert_workspace_change(self, route, repository, modified):
+        from plugins.plugin_storage import plugin_data_dir
+
+        metadata = route.creds["request_overrides"]["extra_body"]["hermes_omp_acp"]
+        state = json.loads((plugin_data_dir("omp-acp-provider") / "workspaces" /
+                            metadata["task_id"] / "state.json").read_text())
+        worktree = Path(state["path"])
+        self.assertEqual((repository / "probe.txt").read_text(), self.token + "\n")
+        self.assertEqual((worktree / "probe.txt").read_text(), modified + "\n")
+        sessions = [
+            json.loads(line)
+            for path in (self.root / "sessions").rglob("*.jsonl")
+            for line in path.read_text().splitlines()
+            if line.strip()
+        ]
+        self.assertTrue(any(record.get("type") == "session" and
+                            Path(record.get("cwd", "/")).resolve() == worktree.resolve()
+                            for record in sessions))
+        return worktree
+
+    def test_coder_agent_changes_only_its_provider_owned_worktree(self):
+        from run_agent import AIAgent
+
+        repository, modified, endpoint, routes = self._workspace_routes()
+        with closing(AIAgent(
+            **routes[0].creds, quiet_mode=True, max_iterations=2, enabled_toolsets=[],
+            skip_context_files=True, skip_memory=True, skip_background_review=True,
+        )) as child:
+            result = child.run_conversation("Read, change and read back probe.txt")
+        self.assertTrue(result["completed"], result)
+        self.assertEqual(result["final_response"], modified)
+        self.assertFalse(endpoint.errors, endpoint.errors)
+        self._assert_workspace_change(routes[0], repository, modified)
+
+    def test_concurrent_completions_keep_distinct_worktrees_on_one_provider_client(self):
+        repository, modified, endpoint, routes = self._workspace_routes(count=2)
+
+        async def exercise():
+            with closing(self.profile.create_client(acp_cwd=str(self.root))) as client:
+                return await asyncio.gather(*[
+                    client.chat.completions.create(
+                        model="fixture/model-b", timeout=60,
+                        messages=[{"role": "user", "content": "Read, change and read back probe.txt"}],
+                        **route.creds["request_overrides"],
+                    )
+                    for route in routes
+                ])
+
+        responses = asyncio.run(exercise())
+        self.assertEqual([response.choices[0].message.content for response in responses], [modified, modified])
+        self.assertFalse(endpoint.errors, endpoint.errors)
+        paths = [self._assert_workspace_change(route, repository, modified) for route in routes]
+        self.assertNotEqual(paths[0], paths[1])
 
 
 if __name__ == "__main__":

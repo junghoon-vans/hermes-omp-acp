@@ -62,6 +62,15 @@ class ProviderTests(unittest.TestCase):
                 self.assertEqual(choices[-1].finish_reason, "stop")
         asyncio.run(exercise())
 
+    def test_worktree_backend_refuses_completion_without_repository_metadata(self):
+        (self.home / "config.yaml").write_text('{"delegation": {"backend": "omp-worktree"}}')
+        with closing(self.client()) as client:
+            with self.assertRaises(ValueError):
+                client.chat.completions.create(
+                    model="fixture/model", messages=[{"role": "user", "content": "Do not run unisolated"}],
+                    timeout=1,
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

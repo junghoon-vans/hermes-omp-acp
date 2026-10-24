@@ -1,4 +1,4 @@
-"""Local OpenAI-compatible peer that makes real OMP read a test file."""
+"""Local OpenAI-compatible peer exercising real OMP file tools."""
 
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -7,7 +7,7 @@ import threading
 
 
 class ModelEndpoint:
-    def __init__(self, probe):
+    def __init__(self, probe, replacement=None):
         self.requests = []
         self.errors = []
         owner = self
@@ -17,8 +17,19 @@ class ModelEndpoint:
                 request = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
                 owner.requests.append(request)
                 tools = [message for message in request["messages"] if message["role"] == "tool"]
-                if tools:
-                    match = re.search(r"NATIVE_READ_[a-f0-9]{16}", json.dumps(tools))
+                if replacement is not None and len(tools) < 3:
+                    step = len(tools)
+                    arguments = {"path": str(probe)}
+                    if step == 1:
+                        arguments["content"] = replacement + "\n"
+                    delta = {"tool_calls": [{
+                        "index": 0, "id": f"workspace-step-{step}", "type": "function",
+                        "function": {"name": "write" if step == 1 else "read",
+                                     "arguments": json.dumps(arguments)},
+                    }]}
+                    finish = "tool_calls"
+                elif tools:
+                    match = re.search(r"NATIVE_READ_[a-f0-9]{16}", json.dumps(tools[-1]))
                     if match is None:
                         owner.errors.append("The model did not receive the native read tool's file contents")
                         self.send_error(400, owner.errors[-1])
