@@ -59,7 +59,13 @@ python -m pip install .
 
 The package exposes the `hermes_agent.plugins` entry point `omp-acp-provider`. Use the same activation command from step 1 after installing it. This package route is an alternative to the Hermes installation command.
 
-Install Hermes and OMP separately. The Python package has not been published to PyPI yet.
+After the first PyPI release of `hermes-omp-acp-provider` is published, install it into the same Python environment that runs Hermes with:
+
+```sh
+python -m pip install hermes-omp-acp-provider
+```
+
+Until then, use the repository install above. Install Hermes and OMP separately; this package does not install either.
 
 ## Configuration
 
