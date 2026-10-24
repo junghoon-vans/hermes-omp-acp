@@ -23,6 +23,7 @@ jobs:
     outputs:
       package: ${{ steps.release.outputs.package }}
       sha: ${{ steps.release.outputs.sha }}
+      index: ${{ steps.release.outputs.index }}
       environment: ${{ steps.release.outputs.environment }}
     steps:
       - uses: actions/checkout@v7.0.1
@@ -36,7 +37,7 @@ jobs:
         id: release
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
-          PUBLISH_ENVIRONMENT: ${{ github.event_name == 'release' && 'pypi' || 'testpypi' }}
+          PUBLISH_INDEX: ${{ github.event_name == 'release' && 'pypi' || 'testpypi' }}
         run: python .github/scripts/prepare_release.py
 
   compatibility:
@@ -58,10 +59,10 @@ jobs:
           name: ${{ needs.prepare.outputs.package }}-distributions
           path: dist
       - name: Publish to TestPyPI
-        if: needs.prepare.outputs.environment == 'testpypi'
+        if: needs.prepare.outputs.index == 'testpypi'
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           repository-url: https://test.pypi.org/legacy/
       - name: Publish to PyPI
-        if: needs.prepare.outputs.environment == 'pypi'
+        if: needs.prepare.outputs.index == 'pypi'
         uses: pypa/gh-action-pypi-publish@release/v1

@@ -109,18 +109,20 @@ Publish each distribution separately. The provider is `hermes-omp-acp-provider` 
 
 An administrator needs access to the GitHub repository settings and accounts on both package indexes:
 
-1. In GitHub, open **Settings → Environments** and create environments named exactly `pypi` and `testpypi`. Publishing uses OIDC, not API-token secrets; `id-token: write` is granted only to the publish job.
-   Configure required maintainer approval for both environments (a solo maintainer must allow self-approval). Under **Deployment branches and tags**, allow tags `model-provider/v*` and `delegator/v*` for `pypi`, and only branch `main` for `testpypi`. Run the manual TestPyPI workflow from `main`; its `tag` input selects the package commit independently.
+1. In GitHub, open **Settings → Environments** and create `pypi-provider`, `pypi-delegator`, `testpypi-provider`, and `testpypi-delegator`. Publishing uses OIDC, not API-token secrets; `id-token: write` is granted only to the publish job.
+   Configure required maintainer approval for all four environments (a solo maintainer must allow self-approval). Under **Deployment branches and tags**, allow only tags `model-provider/v*` for `pypi-provider` and only tags `delegator/v*` for `pypi-delegator`. Allow only branch `main` for both TestPyPI environments. Run the manual TestPyPI workflow from `main`; its `tag` input selects the package commit independently.
 2. In the account-level **Publishing** settings on each index, choose GitHub Actions and add a pending publisher for each package using this mapping:
 
    | Index | Project name | GitHub environment |
    | --- | --- | --- |
-   | PyPI | `hermes-omp-acp-provider` | `pypi` |
-   | PyPI | `hermes-omp-acp-delegator` | `pypi` |
-   | TestPyPI | `hermes-omp-acp-provider` | `testpypi` |
-   | TestPyPI | `hermes-omp-acp-delegator` | `testpypi` |
+   | PyPI | `hermes-omp-acp-provider` | `pypi-provider` |
+   | PyPI | `hermes-omp-acp-delegator` | `pypi-delegator` |
+   | TestPyPI | `hermes-omp-acp-provider` | `testpypi-provider` |
+   | TestPyPI | `hermes-omp-acp-delegator` | `testpypi-delegator` |
 
    For all four entries, set the GitHub owner to `junghoon-vans`, repository to `hermes-omp-acp`, and workflow to `publish.yml` (the file is `.github/workflows/publish.yml`). The environment field must match the table.
+
+   Each package uses a distinct environment because PyPI rejects pending publishers with identical owner/repository/workflow/environment settings for different project names. If a pending publisher already uses the old shared `pypi` or `testpypi` environment, replace that pending registration with the package-specific configuration above before publishing. Registering a publisher does not upload a release.
 
 Pending publishers do not reserve project names; confirm each name is available on the intended index before publishing. See the official [PyPI Trusted Publishers guide](https://docs.pypi.org/trusted-publishers/using-a-publisher/) and [pending publisher setup guide](https://docs.pypi.org/trusted-publishers/creating-a-project-through-oidc/). PyPI and TestPyPI make uploaded wheels, sdists, and metadata publicly downloadable; review them for secrets or source you do not intend to disclose. Publishing a package does not change the repository's visibility.
 

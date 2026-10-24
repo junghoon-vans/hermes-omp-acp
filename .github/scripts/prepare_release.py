@@ -32,10 +32,11 @@ def prepare(tag: str, root: Path) -> str:
 if __name__ == "__main__":
     root = Path(__file__).resolve().parents[2]
     package = prepare(os.environ["RELEASE_TAG"], root)
-    environment = os.environ["PUBLISH_ENVIRONMENT"]
-    if environment not in {"pypi", "testpypi"}:
-        raise ValueError("Unsupported publishing environment")
+    index = os.environ["PUBLISH_INDEX"]
+    if index not in {"pypi", "testpypi"}:
+        raise ValueError("Unsupported publishing index")
+    environment = f"{index}-{package}"
     sha = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
     with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
-        output.write(f"package={package}\nsha={sha}\nenvironment={environment}\n")
+        output.write(f"package={package}\nsha={sha}\nindex={index}\nenvironment={environment}\n")
     print(f"Validated {os.environ['RELEASE_TAG']} at {sha} for {environment}")
