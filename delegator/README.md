@@ -50,7 +50,7 @@ hermes plugins install junghoon-vans/hermes-omp-acp/delegator
 hermes plugins enable omp-acp-delegator
 ```
 
-The repository is private, so installation requires GitHub access. Run both commands for the Hermes profile that should load the plugin. For a named profile, prefix the commands with `hermes -p <profile>`.
+Run both commands for the Hermes profile that should load the plugin. For a named profile, prefix the commands with `hermes -p <profile>`.
 
 On Hermes **0.22.3 or later**, prepare dependencies and check the installed plugin using the official commands:
 
@@ -115,7 +115,15 @@ cd delegator
 python -m pip install .
 ```
 
-The package registers the `hermes_agent.plugins` entry point `omp-acp-delegator`. Use the same activation command above after installing it. This package route is an alternative to Hermes's source-plugin installation; it does not install Hermes or OMP. The Python package has not been published to PyPI.
+The package registers the `hermes_agent.plugins` entry point `omp-acp-delegator`. Use the same activation command above after installing it. This package route is an alternative to Hermes's source-plugin installation; it does not install Hermes or OMP.
+
+After the first PyPI release of `hermes-omp-acp-delegator` is published, install it into the same Python environment that runs Hermes with:
+
+```sh
+python -m pip install hermes-omp-acp-delegator
+```
+
+Until then, use the repository install above.
 
 ## Tools
 
