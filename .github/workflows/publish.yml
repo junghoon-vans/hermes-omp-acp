@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing provider-vX.Y.Z or delegator-vX.Y.Z tag to publish to TestPyPI
+        description: Existing model-provider/vX.Y.Z or delegator/vX.Y.Z tag to publish to TestPyPI
         required: true
         type: string
 

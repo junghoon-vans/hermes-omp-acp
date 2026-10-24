@@ -8,20 +8,20 @@ import tomllib
 
 
 PACKAGES = {
-    "provider": ("model-provider", "hermes-omp-acp-provider"),
-    "delegator": ("delegator", "hermes-omp-acp-delegator"),
+    "model-provider": ("hermes-omp-acp-provider", "provider"),
+    "delegator": ("hermes-omp-acp-delegator", "delegator"),
 }
 
 
 def prepare(tag: str, root: Path) -> str:
     match = re.fullmatch(
-        r"(provider|delegator)-v([0-9]+\.[0-9]+\.[0-9]+(?:(?:a|b|rc)[0-9]+)?)",
+        r"(model-provider|delegator)/v([0-9]+\.[0-9]+\.[0-9]+(?:(?:a|b|rc)[0-9]+)?)",
         tag,
     )
     if match is None:
-        raise ValueError("Expected provider-vX.Y.Z or delegator-vX.Y.Z (optional aN/bN/rcN)")
-    package, version = match.groups()
-    directory, name = PACKAGES[package]
+        raise ValueError("Expected model-provider/vX.Y.Z or delegator/vX.Y.Z (optional aN/bN/rcN)")
+    directory, version = match.groups()
+    name, package = PACKAGES[directory]
     with (root / directory / "pyproject.toml").open("rb") as metadata:
         project = tomllib.load(metadata)["project"]
     if project["name"] != name or project["version"] != version:

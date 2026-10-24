@@ -103,14 +103,14 @@ CI builds both distributions and checks both license copies.
 
 ## Publish the independent distributions
 
-Publish each distribution separately. The provider is `hermes-omp-acp-provider` (currently `0.1.0`), selected by `provider-v0.1.0`; the delegator is `hermes-omp-acp-delegator` (currently `0.1.0`), selected by `delegator-v0.1.0`. Future tags use the same prefixes with the distribution's version. Tags accept `X.Y.Z` with an optional `aN`, `bN`, or `rcN` suffix, and the version must exactly match that module's `pyproject.toml`.
+Publish each distribution separately. The provider is `hermes-omp-acp-provider` (currently `0.1.0`), selected by `model-provider/v0.1.0`; the delegator is `hermes-omp-acp-delegator` (currently `0.1.0`), selected by `delegator/v0.1.0`. Future tags use the same directory prefixes with the distribution's version. Tags accept `X.Y.Z` with an optional `aN`, `bN`, or `rcN` suffix, and the version must exactly match that module's `pyproject.toml`.
 
 ### One-time trusted-publishing setup
 
 An administrator needs access to the GitHub repository settings and accounts on both package indexes:
 
 1. In GitHub, open **Settings → Environments** and create environments named exactly `pypi` and `testpypi`. Publishing uses OIDC, not API-token secrets; `id-token: write` is granted only to the publish job.
-   Configure required maintainer approval for both environments (a solo maintainer must allow self-approval). Under **Deployment branches and tags**, allow tags `provider-v*` and `delegator-v*` for `pypi`, and only branch `main` for `testpypi`. Run the manual TestPyPI workflow from `main`; its `tag` input selects the package commit independently.
+   Configure required maintainer approval for both environments (a solo maintainer must allow self-approval). Under **Deployment branches and tags**, allow tags `model-provider/v*` and `delegator/v*` for `pypi`, and only branch `main` for `testpypi`. Run the manual TestPyPI workflow from `main`; its `tag` input selects the package commit independently.
 2. In the account-level **Publishing** settings on each index, choose GitHub Actions and add a pending publisher for each package using this mapping:
 
    | Index | Project name | GitHub environment |
@@ -126,14 +126,14 @@ Pending publishers do not reserve project names; confirm each name is available 
 
 ### TestPyPI dry run and installed-package validation
 
-Set the selected module's `pyproject.toml` version, commit the release candidate, then create and push its matching tag. Do not create a GitHub Release yet. For the current initial version `0.1.0`, the provider tag is `provider-v0.1.0` and the delegator tag is `delegator-v0.1.0`; create only the tag for the selected distribution:
+Set the selected module's `pyproject.toml` version, commit the release candidate, then create and push its matching tag. Do not create a GitHub Release yet. For the current initial version `0.1.0`, the provider tag is `model-provider/v0.1.0` and the delegator tag is `delegator/v0.1.0`; create only the tag for the selected distribution:
 
 ```sh
-git tag provider-v0.1.0
-git push origin provider-v0.1.0
+git tag model-provider/v0.1.0
+git push origin model-provider/v0.1.0
 ```
 
-For the delegator, replace `provider` with `delegator` on both commands. Future tags use the exact version from that module's `pyproject.toml`.
+For the delegator, replace `model-provider` with `delegator` on both commands. Future tags use the exact version from that module's `pyproject.toml`.
 
 In GitHub, open **Actions → `publish.yml` → Run workflow**, enter the existing tag in the `tag` input, and start the run. The workflow runs its reusable CI prerequisite and uploads the tested wheel and sdist artifacts to TestPyPI unchanged. `workflow_dispatch` publishes **only** to TestPyPI; it does not create a GitHub Release or upload to production PyPI. This is a real TestPyPI publication, not a no-side-effect simulation.
 
