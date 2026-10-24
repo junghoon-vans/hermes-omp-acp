@@ -39,6 +39,8 @@ model:
 
 Replace the example model with a `provider/model` ID available to your OMP account. `acp://omp` identifies the subprocess backend; it is not a network endpoint.
 
+An explicitly requested model must be selected successfully in the ACP session before the task runs. An unavailable model, failed selection, or returned model mismatch raises an error instead of running on OMP's default model.
+
 ### 3. Send a request
 
 ```sh
@@ -75,6 +77,37 @@ Until then, use the repository install above. Install Hermes and OMP separately;
 | `HERMES_OMP_ACP_ARGS` | `acp` | Replace the complete argument list; parsed with shell-style quoting. Include `acp` when overriding. |
 
 These variables must be available to the Hermes process, including a gateway launched as a service.
+
+## Official delegation model routes
+
+To choose an OMP model per subagent task, use the official [Advanced Delegation plugin](https://github.com/NousResearch/hermes-official-plugins/tree/main/advanced-delegation), which requires **Hermes 0.22.5 or later**. Install and enable both plugins in the profile that delegates:
+
+```sh
+hermes plugins install advanced-delegation
+hermes plugins enable advanced-delegation
+```
+
+The `omp-acp-provider` installation and activation steps above are also required. Merge this separate delegation configuration into that profile's `config.yaml`:
+
+```yaml
+delegation:
+  backend: model_map
+  backends:
+    model_map:
+      options:
+        - name: omp-deep
+          description: Complex code analysis and implementation.
+          provider: omp-acp
+          model: openai-codex/gpt-6.1-sol
+      default: omp-deep
+```
+
+Replace `model` with an OMP model ID available to your account. Start a new Hermes session after changing routes.
+
+**Do not copy `base_url: acp://omp` from the main-model example into a delegation route.** Hermes's delegation resolver treats an explicit `base_url` as a custom endpoint; use `provider: omp-acp` and let the provider resolve its executable and arguments.
+
+This routes Hermes subagents to OMP models; it does not replace the delegator's retained OMP sessions, worktrees, or `omp_status`. Each provider completion still starts a new ACP session. Route-level `reasoning_effort` and `service_tier` are not mapped to OMP settings by this provider.
+
 
 ## Documentation
 

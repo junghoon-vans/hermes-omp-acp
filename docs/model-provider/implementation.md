@@ -9,6 +9,8 @@
 
 Each completion opens a new OMP process and ACP session, sending the conversation history with the request. Responses are buffered before being returned as completion objects or stream chunks.
 
+When a model is explicitly requested, the client selects it in that same session before sending the prompt. It reuses Hermes's model-selection negotiation (`session/set_config_option`, or legacy `session/set_model`) but does not inherit its warning-and-default fallback: unavailable models and selection errors abort the completion. A returned current model is checked against the requested ID; when no current model is returned, the successful selection RPC is the acknowledgement. Omitting the model allows the session default.
+
 Native ACP approval requests use the inherited Hermes handler. See [Known limitations](limitations.md#native-acp-approval-requests) for its behavior and the write-verification boundary.
 
 The plugin depends on Hermes's internal `CopilotACPClient` API. Upstream compatibility is checked through the scenarios described in [Verification](verification.md).
