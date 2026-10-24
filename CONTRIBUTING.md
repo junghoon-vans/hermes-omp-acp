@@ -4,7 +4,7 @@ Run development commands from the repository root unless a command says otherwis
 
 ## Package boundaries and Python environments
 
-- `model-provider/` builds `hermes-omp-acp`, requires Python 3.11 or later, and declares no package dependencies. It runs inside a Hermes environment; its tests need Hermes's `acp` extra, which provides the official `agent-client-protocol` test peer dependency. Use a Python version supported by the Hermes release being checked.
+- `model-provider/` builds `hermes-omp-acp-provider`, requires Python 3.11 or later, and declares no package dependencies. It runs inside a Hermes environment; its tests need Hermes's `acp` extra, which provides the official `agent-client-protocol` test peer dependency. Use a Python version supported by the Hermes release being checked.
 - `delegator/` builds `hermes-omp-acp-delegator`, supports Python 3.11–3.14, and pins `agent-client-protocol==0.9.0`.
 
 Do not merge these requirements into one package or assume their version numbers move together. For the supported user-facing minimums, see the [provider requirements](model-provider/README.md#requirements) and the [delegator compatibility table](delegator/README.md#hermes-compatibility).
@@ -100,6 +100,72 @@ cmp LICENSE delegator/LICENSE
 ```
 
 CI builds both distributions and checks both license copies.
+
+## Publish the independent distributions
+
+Publish each distribution separately. The provider is `hermes-omp-acp-provider` (currently `0.1.0`), selected by `model-provider/v0.1.0`; the delegator is `hermes-omp-acp-delegator` (currently `0.1.0`), selected by `delegator/v0.1.0`. Future tags use the same directory prefixes with the distribution's version. Tags accept `X.Y.Z` with an optional `aN`, `bN`, or `rcN` suffix, and the version must exactly match that module's `pyproject.toml`.
+
+### One-time trusted-publishing setup
+
+An administrator needs access to the GitHub repository settings and accounts on both package indexes:
+
+1. In GitHub, open **Settings → Environments** and create environments named exactly `pypi` and `testpypi`. Publishing uses OIDC, not API-token secrets; `id-token: write` is granted only to the publish job.
+   Configure required maintainer approval for both environments (a solo maintainer must allow self-approval). Under **Deployment branches and tags**, allow tags `model-provider/v*` and `delegator/v*` for `pypi`, and only branch `main` for `testpypi`. Run the manual TestPyPI workflow from `main`; its `tag` input selects the package commit independently.
+2. In the account-level **Publishing** settings on each index, choose GitHub Actions and add a pending publisher for each package using this mapping:
+
+   | Index | Project name | GitHub environment |
+   | --- | --- | --- |
+   | PyPI | `hermes-omp-acp-provider` | `pypi` |
+   | PyPI | `hermes-omp-acp-delegator` | `pypi` |
+   | TestPyPI | `hermes-omp-acp-provider` | `testpypi` |
+   | TestPyPI | `hermes-omp-acp-delegator` | `testpypi` |
+
+   For all four entries, set the GitHub owner to `junghoon-vans`, repository to `hermes-omp-acp`, and workflow to `publish.yml` (the file is `.github/workflows/publish.yml`). The environment field must match the table.
+
+Pending publishers do not reserve project names; confirm each name is available on the intended index before publishing. See the official [PyPI Trusted Publishers guide](https://docs.pypi.org/trusted-publishers/using-a-publisher/) and [pending publisher setup guide](https://docs.pypi.org/trusted-publishers/creating-a-project-through-oidc/). PyPI and TestPyPI make uploaded wheels, sdists, and metadata publicly downloadable; review them for secrets or source you do not intend to disclose. Publishing a package does not change the repository's visibility.
+
+### TestPyPI dry run and installed-package validation
+
+Set the selected module's `pyproject.toml` version, commit the release candidate, then create and push its matching tag. Do not create a GitHub Release yet. For the current initial version `0.1.0`, the provider tag is `model-provider/v0.1.0` and the delegator tag is `delegator/v0.1.0`; create only the tag for the selected distribution:
+
+```sh
+git tag model-provider/v0.1.0
+git push origin model-provider/v0.1.0
+```
+
+For the delegator, replace `model-provider` with `delegator` on both commands. Future tags use the exact version from that module's `pyproject.toml`.
+
+In GitHub, open **Actions → `publish.yml` → Run workflow**, enter the existing tag in the `tag` input, and start the run. The workflow runs its reusable CI prerequisite and uploads the tested wheel and sdist artifacts to TestPyPI unchanged. `workflow_dispatch` publishes **only** to TestPyPI; it does not create a GitHub Release or upload to production PyPI. This is a real TestPyPI publication, not a no-side-effect simulation.
+
+Validate the package from TestPyPI in a disposable Hermes environment/profile. Set `HERMES_PYTHON` to the interpreter that runs Hermes and set `PACKAGE` and `VERSION` to the selected distribution and exact tag version:
+
+```sh
+HERMES_PYTHON=/absolute/path/to/hermes/python
+PACKAGE=hermes-omp-acp-provider # or hermes-omp-acp-delegator
+VERSION=0.1.0
+"$HERMES_PYTHON" -m pip install --no-deps \
+  --index-url https://test.pypi.org/simple \
+  "$PACKAGE==$VERSION"
+```
+
+For the delegator, install its declared dependency separately from production PyPI:
+
+```sh
+"$HERMES_PYTHON" -m pip install --index-url https://pypi.org/simple \
+  "agent-client-protocol==0.9.0"
+```
+
+Do not use `--extra-index-url`: install the named package with dependencies disabled from TestPyPI, then obtain its dependencies from PyPI. Run Hermes from that same environment, enable the package's plugin ID (`omp-acp-provider` or `omp-acp-delegator`), and exercise the corresponding quick start in the [provider guide](model-provider/README.md) or [delegator guide](delegator/README.md). Check that Hermes discovers the installed entry point and that its documented behavior works; `pip install` alone is not validation.
+
+### Production release
+
+After the TestPyPI install check succeeds, create and publish a GitHub Release for the same tag in the repository's **Releases** page. Publishing the GitHub Release starts the production path for only the selected package; a pushed tag alone does not publish to PyPI, and `workflow_dispatch` remains TestPyPI-only. The release workflow requires the full reusable CI suite and promotes the exact tested wheel and sdist artifacts without rebuilding them. Verify the production release contains the expected version and both artifacts.
+
+### Failure and version handling
+
+- A tag/version mismatch or failed CI gate prevents upload. Inspect the workflow logs, fix the affected package, and create a correctly versioned tag for the corrected commit. Do not edit or replace the tested artifacts.
+- If a TestPyPI upload has succeeded, use a new version and matching tag for another test upload rather than relying on overwriting it.
+- Production PyPI versions are immutable: an uploaded file cannot be replaced or re-uploaded for that version. If any production artifact was uploaded before a failure, treat that version as consumed; fix the package, bump only its version in its `pyproject.toml`, and publish a new matching tag and GitHub Release. The other distribution's version is independent.
 
 ## Runtime changes and pull requests
 

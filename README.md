@@ -18,7 +18,13 @@ hermes plugins install junghoon-vans/hermes-omp-acp/model-provider
 hermes plugins enable omp-acp-provider
 ```
 
-The repository is private; installation requires GitHub access. See the [provider guide](model-provider/README.md) for requirements, model selection, profile setup, and inherited ACP permission limitations.
+The GitHub installation above is the source-plugin route. After the first PyPI release of `hermes-omp-acp-provider` is published, you can instead install the package into the same Python environment that runs Hermes:
+
+```sh
+python -m pip install hermes-omp-acp-provider
+```
+
+See the [provider guide](model-provider/README.md) for requirements, model selection, profile setup, and inherited ACP permission limitations.
 
 ## Install the delegator
 
@@ -27,13 +33,19 @@ hermes plugins install junghoon-vans/hermes-omp-acp/delegator
 hermes plugins enable omp-acp-delegator
 ```
 
+After the first PyPI release of `hermes-omp-acp-delegator` is published, install the package into the same Python environment that runs Hermes with:
+
+```sh
+python -m pip install hermes-omp-acp-delegator
+```
+
 Configure the allowed repository roots and enable the `omp-acp-delegator` toolset as described in the [delegator guide](delegator/README.md). Delegation is channel-independent and does not change Hermes's model backend.
 
 ## Development
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development, testing, compatibility, and build instructions; CI builds both distributions and checks their independent Hermes interfaces.
 
-The provider distribution is `hermes-omp-acp` (`hermes_omp_acp`); the delegator distribution is `hermes-omp-acp-delegator` (`hermes_omp_delegator`). Each module has its own dependencies and version.
+The provider distribution is `hermes-omp-acp-provider` (`hermes_omp_acp`); the delegator distribution is `hermes-omp-acp-delegator` (`hermes_omp_delegator`). Each module has its own dependencies and version.
 
 ## License
 

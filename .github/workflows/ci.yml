@@ -5,6 +5,12 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        description: Immutable commit to validate for publication
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -16,6 +22,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
       - uses: astral-sh/setup-uv@v10.3.0
         with:
           python-version: "3.14"
@@ -23,6 +31,7 @@ jobs:
         run: |
           cmp LICENSE model-provider/LICENSE
           uv build model-provider --out-dir dist
+          uvx --from twine twine check --strict dist/*
       - name: Resolve the latest stable Hermes release
         id: hermes
         env:
@@ -59,6 +68,11 @@ jobs:
         run: |
           export PYTHONPATH="$GITHUB_WORKSPACE/.hermes-upstream"
           uv run --project .hermes-upstream --no-sync python -P -m unittest discover -s model-provider/tests/integration -v
+      - uses: actions/upload-artifact@v4
+        with:
+          name: provider-distributions
+          path: dist/*
+          if-no-files-found: error
 
   delegator-tests:
     name: Delegator behavior (${{ matrix.os }}, Python ${{ matrix.python }})
@@ -70,6 +84,8 @@ jobs:
         python: ['3.11', '3.14']
     steps:
       - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
@@ -84,6 +100,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
       - uses: astral-sh/setup-uv@v10.3.0
         with:
           python-version: "3.14"
@@ -111,6 +129,8 @@ jobs:
             diagnostics: true
     steps:
       - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
@@ -133,7 +153,14 @@ jobs:
           repository: NousResearch/hermes-agent
           ref: ${{ steps.latest.outputs.tag || matrix.hermes }}
           path: .hermes-upstream
-      - name: Install Hermes and delegator dependencies
+      - name: Prepare latest Hermes from its official lock
+        if: matrix.hermes == 'latest'
+        run: |
+          uv sync --project .hermes-upstream --python "${{ matrix.python }}" --extra acp --locked
+          uv pip install --python .hermes-upstream/.venv/bin/python -r delegator/pyproject.toml
+          echo "$GITHUB_WORKSPACE/.hermes-upstream/.venv/bin" >> "$GITHUB_PATH"
+      - name: Install older Hermes and delegator dependencies
+        if: matrix.hermes != 'latest'
         run: uv pip install --system --editable .hermes-upstream -r delegator/pyproject.toml
       - name: Validate delegator and declared dependencies
         # The minimum host has no validate subcommand.
@@ -143,8 +170,9 @@ jobs:
         run: python delegator/tests/smoke_hermes.py
       - name: Exercise installed delegator wheel through Hermes
         run: |
-          uv build delegator --wheel --out-dir "$RUNNER_TEMP/delegator-dist"
-          uv pip install --system --no-deps "$RUNNER_TEMP/delegator-dist/"*.whl
+          uv build delegator --out-dir "$RUNNER_TEMP/delegator-dist"
+          uvx --from twine twine check --strict "$RUNNER_TEMP/delegator-dist/"*
+          uv pip install --python "$(command -v python)" --no-deps "$RUNNER_TEMP/delegator-dist/"*.whl
           python delegator/tests/smoke_hermes.py --installed
       - name: Check supported lifecycle hooks with Plugin Doctor
         # Older Doctor rejects the unavailable optional hook, although the runtime loads it.
@@ -182,3 +210,9 @@ jobs:
 
           asyncio.run(main())
           PY
+      - uses: actions/upload-artifact@v4
+        if: matrix.hermes == 'latest'
+        with:
+          name: delegator-distributions
+          path: ${{ runner.temp }}/delegator-dist/*
+          if-no-files-found: error
