@@ -62,6 +62,40 @@ class ProviderTests(unittest.TestCase):
                 self.assertEqual(choices[-1].finish_reason, "stop")
         asyncio.run(exercise())
 
+    def test_model_selection_failure_prevents_prompt_execution(self):
+        cases = (
+            ("config", "fixture/missing", RuntimeError, "not offered"),
+            ("config", "copilot-acp", RuntimeError, "not offered"),
+            ("reject", "fixture/model", RuntimeError, "session/set_config_option failed"),
+            ("mismatch", "fixture/model", RuntimeError, "selected"),
+            ("timeout", "fixture/model", TimeoutError, "Timed out"),
+            ("legacy-reject", "fixture/model", RuntimeError, "session/set_model failed"),
+            ("legacy", "fixture/missing", RuntimeError, "not offered"),
+        )
+        for mode, model, error, message in cases:
+            with self.subTest(mode=mode, model=model):
+                args = shlex.join([str(Path(__file__).with_name("acp_peer.py")), mode])
+                (self.home / "prompt-executed").unlink(missing_ok=True)
+                with patch.dict(os.environ, {"HERMES_OMP_ACP_ARGS": args}):
+                    with closing(self.client()) as client:
+                        with self.assertRaisesRegex(error, message):
+                            client.chat.completions.create(
+                                model=model, messages=[{"role": "user", "content": "Do the task"}],
+                                timeout=1 if mode == "timeout" else 5,
+                            )
+                self.assertFalse((self.home / "prompt-executed").exists(),
+                                 "A failed model selection must not execute the task")
+
+    def test_legacy_model_selection_completes_the_task(self):
+        args = shlex.join([str(Path(__file__).with_name("acp_peer.py")), "legacy"])
+        with patch.dict(os.environ, {"HERMES_OMP_ACP_ARGS": args}):
+            with closing(self.client()) as client:
+                response = client.chat.completions.create(
+                    model="fixture/model", messages=[{"role": "user", "content": "Do the task"}],
+                    timeout=5,
+                )
+        self.assertEqual(response.choices[0].message.content, "first second")
+
 
 if __name__ == "__main__":
     unittest.main()

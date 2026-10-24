@@ -93,6 +93,16 @@ class NativeOmpTests(unittest.TestCase):
         asyncio.run(exercise())
         self.assert_native_read_and_model_selection()
 
+    def test_unknown_model_does_not_run_native_omp_inference(self):
+        with closing(self.profile.create_client(acp_cwd=str(self.root))) as client:
+            with self.assertRaisesRegex(RuntimeError, "not offered"):
+                client.chat.completions.create(
+                    model="fixture/not-listed", timeout=20,
+                    messages=[{"role": "user", "content": f"Read {self.probe} and return its contents."}],
+                )
+        self.assertEqual(self.endpoint.requests, [],
+                         "An unknown model must not run inference on OMP's default model")
+
     def _stop_gateway(self):
         script = """
 from gateway.status import get_running_pid
