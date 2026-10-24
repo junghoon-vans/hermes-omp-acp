@@ -153,7 +153,14 @@ jobs:
           repository: NousResearch/hermes-agent
           ref: ${{ steps.latest.outputs.tag || matrix.hermes }}
           path: .hermes-upstream
-      - name: Install Hermes and delegator dependencies
+      - name: Prepare latest Hermes from its official lock
+        if: matrix.hermes == 'latest'
+        run: |
+          uv sync --project .hermes-upstream --python "${{ matrix.python }}" --extra acp --locked
+          uv pip install --python .hermes-upstream/.venv/bin/python -r delegator/pyproject.toml
+          echo "$GITHUB_WORKSPACE/.hermes-upstream/.venv/bin" >> "$GITHUB_PATH"
+      - name: Install older Hermes and delegator dependencies
+        if: matrix.hermes != 'latest'
         run: uv pip install --system --editable .hermes-upstream -r delegator/pyproject.toml
       - name: Validate delegator and declared dependencies
         # The minimum host has no validate subcommand.
@@ -165,7 +172,7 @@ jobs:
         run: |
           uv build delegator --out-dir "$RUNNER_TEMP/delegator-dist"
           uvx --from twine twine check --strict "$RUNNER_TEMP/delegator-dist/"*
-          uv pip install --system --no-deps "$RUNNER_TEMP/delegator-dist/"*.whl
+          uv pip install --python "$(command -v python)" --no-deps "$RUNNER_TEMP/delegator-dist/"*.whl
           python delegator/tests/smoke_hermes.py --installed
       - name: Check supported lifecycle hooks with Plugin Doctor
         # Older Doctor rejects the unavailable optional hook, although the runtime loads it.
