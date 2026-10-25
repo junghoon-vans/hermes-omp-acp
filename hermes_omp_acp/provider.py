@@ -69,9 +69,9 @@ def _omp_worktree_selected(scope):
     except FileNotFoundError:
         return False
 
-    import yaml
+    from utils import fast_safe_load
 
-    config = yaml.safe_load(config_text)
+    config = fast_safe_load(config_text)
     delegation = config.get("delegation") if isinstance(config, dict) else None
     return isinstance(delegation, dict) and delegation.get("backend") == "omp-worktree"
 

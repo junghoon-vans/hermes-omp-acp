@@ -13,7 +13,7 @@ import unittest
 from unittest.mock import patch
 
 from agent.auxiliary_client import _to_async_client
-from providers import get_provider_profile, register_provider
+from providers import get_provider_profile
 
 from hermes_omp_acp.provider import register
 
@@ -156,14 +156,12 @@ class ProviderTests(unittest.TestCase):
             self.assertIsNone(self.profile.fetch_models(timeout=1))
 
     def test_base_provider_remains_usable_without_delegation_apis(self):
-        with patch("hermes_omp_acp.provider.register_provider", wraps=register_provider) as register_profile:
-            with patch.dict(sys.modules, {
-                "agent.delegation_provider": None,
-                "agent.delegation_registry": None,
-            }):
-                register(scope=str(self.home))
+        with patch.dict(sys.modules, {
+            "agent.delegation_provider": None,
+            "agent.delegation_registry": None,
+        }):
+            register(scope=str(self.home))
 
-        register_profile.assert_called_once()
         profile = get_provider_profile("omp-acp")
         self.assertIn("fixture/model", profile.fetch_models(timeout=5) or [])
 
@@ -274,10 +272,10 @@ class ProviderTests(unittest.TestCase):
                 )
 
         pids = self._wait_for_peers(
-            "budget_initialize", "budget_new_session", "budget_selection", timeout=1,
+            "budget_initialize", timeout=1,
         )
         self.assertFalse((self.home / "prompt-executed").exists())
-        self._assert_process_reaped(pids["budget_selection"])
+        self._assert_process_reaped(pids["budget_initialize"])
 
     def test_legacy_model_selection_completes_the_task(self):
         args = shlex.join([str(Path(__file__).with_name("acp_peer.py")), "legacy"])

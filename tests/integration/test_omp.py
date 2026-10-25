@@ -255,6 +255,10 @@ Path(sys.argv[2]).write_text(json.dumps({
         self.assert_native_read_and_model_selection()
 
     def _workspace_routes(self, count=1):
+        from importlib.util import find_spec
+
+        if find_spec("agent.delegation_provider") is None or find_spec("agent.delegation_registry") is None:
+            self.skipTest("This Hermes release lacks the delegation APIs required by omp-worktree")
         source = os.environ.get("HERMES_ADVANCED_DELEGATION_SOURCE")
         if not source:
             raise RuntimeError("Set HERMES_ADVANCED_DELEGATION_SOURCE to the official advanced-delegation plugin")
