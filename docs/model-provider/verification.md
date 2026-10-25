@@ -10,7 +10,7 @@ Each integration scenario uses temporary Hermes and OMP homes. The model endpoin
 
 ## Minimum-version boundaries
 
-The minimum versions are listed in [Requirements](../../model-provider/README.md#requirements).
+The minimum versions are listed in [Requirements](../../README.md#requirements).
 
 - Hermes 0.21.4 adds generic external-process provider selection and setup. Earlier direct-provider runtime support alone does not cover the model picker. Its release tag is [`v2026.9.21`](https://github.com/NousResearch/hermes-agent/releases/tag/v2026.9.21).
 - OMP 15.0.0 adds the [`omp acp` subcommand](https://github.com/can1357/oh-my-pi/commit/275108974aa96f97931fca8353d4f517fd018b00). OMP 14.9.9 exposes the older `--mode acp` route.

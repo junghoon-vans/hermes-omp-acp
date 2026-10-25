@@ -1,4 +1,4 @@
-name: Plugin compatibility
+name: Provider compatibility
 
 on:
   push:
@@ -29,8 +29,7 @@ jobs:
           python-version: "3.14"
       - name: Build distributions
         run: |
-          cmp LICENSE model-provider/LICENSE
-          uv build model-provider --out-dir dist
+          uv build --out-dir dist
           uvx --from twine twine check --strict dist/*
       - name: Resolve the latest stable Hermes release
         id: hermes
@@ -63,156 +62,13 @@ jobs:
       - name: Exercise the installed provider through Hermes
         run: |
           export PYTHONPATH="$GITHUB_WORKSPACE/.hermes-upstream"
-          uv run --project .hermes-upstream --no-sync python -P -m unittest discover -s model-provider/tests -v
+          uv run --project .hermes-upstream --no-sync python -P -m unittest discover -s tests -v
       - name: Exercise native OMP model selection and file reading
         run: |
           export PYTHONPATH="$GITHUB_WORKSPACE/.hermes-upstream"
-          uv run --project .hermes-upstream --no-sync python -P -m unittest discover -s model-provider/tests/integration -v
+          uv run --project .hermes-upstream --no-sync python -P -m unittest discover -s tests/integration -v
       - uses: actions/upload-artifact@v4
         with:
           name: provider-distributions
           path: dist/*
-          if-no-files-found: error
-
-  delegator-tests:
-    name: Delegator behavior (${{ matrix.os }}, Python ${{ matrix.python }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-        python: ['3.11', '3.14']
-    steps:
-      - uses: actions/checkout@v7.0.1
-        with:
-          ref: ${{ inputs.ref || github.sha }}
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python }}
-      - uses: astral-sh/setup-uv@v10.3.0
-      - name: Install delegator dependencies
-        run: uv pip install --system -r delegator/pyproject.toml
-      - name: Exercise delegator behavior
-        run: python -m unittest discover -s delegator/tests -v
-
-  delegator-distributions:
-    name: Delegator distributions
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7.0.1
-        with:
-          ref: ${{ inputs.ref || github.sha }}
-      - uses: astral-sh/setup-uv@v10.3.0
-        with:
-          python-version: "3.14"
-      - name: Verify license and build standard distributions
-        run: |
-          cmp LICENSE delegator/LICENSE
-          uv build delegator --out-dir dist/delegator
-
-  delegator-compatibility:
-    name: Hermes ${{ matrix.hermes }} loading and official OMP ACP
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # The official calendar-versioned tag for Hermes 0.21.0.
-          - hermes: v2026.8.31
-            python: '3.13'
-            diagnostics: false
-          - hermes: v0.22.3
-            python: '3.14'
-            diagnostics: true
-          - hermes: latest
-            python: '3.14'
-            diagnostics: true
-    steps:
-      - uses: actions/checkout@v7.0.1
-        with:
-          ref: ${{ inputs.ref || github.sha }}
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python }}
-      - uses: oven-sh/setup-bun@v2.2.0
-        with:
-          bun-version: '1.4.3'
-      - name: Install official OMP CLI
-        run: bun install --global @oh-my-pi/pi-coding-agent@18.12.1
-      - uses: astral-sh/setup-uv@v10.3.0
-      - name: Resolve latest stable Hermes release
-        if: matrix.hermes == 'latest'
-        id: latest
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          tag="$(gh api repos/NousResearch/hermes-agent/releases/latest --jq .tag_name)"
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-      - uses: actions/checkout@v7.0.1
-        with:
-          repository: NousResearch/hermes-agent
-          ref: ${{ steps.latest.outputs.tag || matrix.hermes }}
-          path: .hermes-upstream
-      - name: Prepare latest Hermes from its official lock
-        if: matrix.hermes == 'latest'
-        run: |
-          uv sync --project .hermes-upstream --python "${{ matrix.python }}" --extra acp --locked
-          uv pip install --python .hermes-upstream/.venv/bin/python -r delegator/pyproject.toml
-          echo "$GITHUB_WORKSPACE/.hermes-upstream/.venv/bin" >> "$GITHUB_PATH"
-      - name: Install older Hermes and delegator dependencies
-        if: matrix.hermes != 'latest'
-        run: uv pip install --system --editable .hermes-upstream -r delegator/pyproject.toml
-      - name: Validate delegator and declared dependencies
-        # The minimum host has no validate subcommand.
-        if: matrix.diagnostics
-        run: hermes plugins validate delegator --install-deps
-      - name: Exercise delegator through Hermes (SDK fixture; no inference)
-        run: python delegator/tests/smoke_hermes.py
-      - name: Exercise installed delegator wheel through Hermes
-        run: |
-          uv build delegator --out-dir "$RUNNER_TEMP/delegator-dist"
-          uvx --from twine twine check --strict "$RUNNER_TEMP/delegator-dist/"*
-          uv pip install --python "$(command -v python)" --no-deps "$RUNNER_TEMP/delegator-dist/"*.whl
-          python delegator/tests/smoke_hermes.py --installed
-      - name: Check supported lifecycle hooks with Plugin Doctor
-        # Older Doctor rejects the unavailable optional hook, although the runtime loads it.
-        if: matrix.diagnostics
-        run: hermes plugins doctor delegator --ci
-      - name: Negotiate official OMP ACP without model inference
-        run: |
-          python - <<'PY'
-          import asyncio
-          import shutil
-          import tempfile
-
-          from acp import PROTOCOL_VERSION, spawn_agent_process
-          from acp.schema import ClientCapabilities, RequestPermissionResponse
-
-          class Probe:
-              async def request_permission(self, **kwargs):
-                  return RequestPermissionResponse(outcome={'outcome': 'cancelled'})
-
-              async def session_update(self, **kwargs):
-                  pass
-
-          async def main():
-              with tempfile.TemporaryDirectory(prefix='omp-acp-check-') as temporary:
-                  async with spawn_agent_process(Probe(), shutil.which('omp'), 'acp', cwd=temporary) as (conn, process):
-                      response = await asyncio.wait_for(conn.initialize(
-                          protocol_version=PROTOCOL_VERSION,
-                          client_capabilities=ClientCapabilities(),
-                      ), timeout=60)
-                      assert response.protocol_version == PROTOCOL_VERSION, response
-                      assert response.agent_info.name == 'omp', response
-                      assert response.agent_info.version == '18.12.1', response
-                      assert response.agent_capabilities.load_session is True, response
-                      print('Official OMP ACP:', response.agent_info)
-
-          asyncio.run(main())
-          PY
-      - uses: actions/upload-artifact@v4
-        if: matrix.hermes == 'latest'
-        with:
-          name: delegator-distributions
-          path: ${{ runner.temp }}/delegator-dist/*
           if-no-files-found: error
