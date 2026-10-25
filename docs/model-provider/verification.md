@@ -15,6 +15,9 @@ MCP regression coverage includes:
 - Allowlist overrides for `enabled: false`, with the denylist still preventing server startup.
 - Rejecting malformed configuration before task execution without exposing configuration values, while keeping model discovery available.
 - Rejecting an HTTP server when the ACP peer does not advertise HTTP support.
+- Disabling forwarding through `HERMES_OMP_ACP_MCP_ENABLED`, bypassing malformed configuration, then restoring validation when re-enabled on the same client.
+- Rejecting an invalid toggle before task execution while keeping model discovery available.
+- Preventing configured MCP server startup when disabled while native OMP file reading still completes; existing stdio scenarios exercise forwarding enabled by default.
 
 The automated native MCP tool-call scenarios use stdio. They do not establish live HTTP/SSE server compatibility, OAuth refresh behavior, or preservation of OMP-only options.
 

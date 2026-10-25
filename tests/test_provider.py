@@ -28,6 +28,7 @@ class ProviderTests(unittest.TestCase):
             "HERMES_OMP_ACP_ARGS": shlex.join([str(Path(__file__).with_name("acp_peer.py"))]),
         })
         environment.start()
+        os.environ.pop("HERMES_OMP_ACP_MCP_ENABLED", None)
         self.addCleanup(environment.stop)
         register()
         self.profile = get_provider_profile("omp-acp")
@@ -209,6 +210,41 @@ class ProviderTests(unittest.TestCase):
                     timeout=5,
                 )
         self.assertNotIn("private-config-value", str(error.exception))
+        self.assertFalse((self.home / "prompt-executed").exists())
+
+    def test_mcp_environment_toggle_skips_config_until_reenabled(self):
+        agent_dir = Path(os.environ["PI_CODING_AGENT_DIR"])
+        agent_dir.mkdir()
+        (agent_dir / "mcp.json").write_text('{"mcpServers": broken')
+        with closing(self.client()) as client:
+            for value in ("0", " FALSE ", "no", "OFF"):
+                with self.subTest(disabled=value), patch.dict(
+                    os.environ, {"HERMES_OMP_ACP_MCP_ENABLED": value},
+                ):
+                    response = client.chat.completions.create(
+                        model="fixture/model", messages=[{"role": "user", "content": "Do the task"}],
+                        timeout=5,
+                    )
+                    self.assertEqual(response.choices[0].message.content, "first second")
+            for value in ("", "1", "true", "YES", " on "):
+                with self.subTest(enabled=value), patch.dict(
+                    os.environ, {"HERMES_OMP_ACP_MCP_ENABLED": value},
+                ):
+                    with self.assertRaisesRegex(RuntimeError, "MCP.*malformed"):
+                        client.chat.completions.create(
+                            model="fixture/model", messages=[{"role": "user", "content": "Do the task"}],
+                            timeout=5,
+                        )
+
+    def test_invalid_mcp_environment_toggle_blocks_tasks(self):
+        with patch.dict(os.environ, {"HERMES_OMP_ACP_MCP_ENABLED": "typo"}):
+            self.assertIn("fixture/model", self.profile.fetch_models(timeout=5))
+            with closing(self.client()) as client:
+                with self.assertRaisesRegex(RuntimeError, "HERMES_OMP_ACP_MCP_ENABLED"):
+                    client.chat.completions.create(
+                        model="fixture/model", messages=[{"role": "user", "content": "Do the task"}],
+                        timeout=5,
+                    )
         self.assertFalse((self.home / "prompt-executed").exists())
 
     def test_unsupported_mcp_transport_blocks_tasks_before_execution(self):

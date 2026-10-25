@@ -31,7 +31,7 @@ These checks describe the ACP filesystem callbacks, not every possible OMP tool 
 
 ## MCP configuration compatibility
 
-The provider reads only the global OMP `mcp.json`. It does not reproduce OMP's project-file, plugin, or third-party configuration discovery. See [MCP servers](../../README.md#mcp-servers) for path selection and missing-file behavior.
+When forwarding is enabled (the default), the provider reads only the global OMP `mcp.json`. It does not reproduce OMP's project-file, plugin, or third-party configuration discovery. Set `HERMES_OMP_ACP_MCP_ENABLED=false` to skip file loading and send an empty `mcpServers` list without changing OMP's configuration. This controls this provider's MCP forwarding, not native OMP tools or Hermes-managed tools. See [MCP servers](../../README.md#mcp-servers) for accepted toggle values, path selection, and missing-file behavior.
 
 The supported transport fields are:
 

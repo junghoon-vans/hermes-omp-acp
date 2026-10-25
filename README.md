@@ -77,13 +77,24 @@ For local source installation and development, see [CONTRIBUTING.md](CONTRIBUTIN
 | --- | --- | --- |
 | `HERMES_OMP_ACP_COMMAND` | `omp` | Override the executable, for example with an absolute path. |
 | `HERMES_OMP_ACP_ARGS` | `acp` | Replace the complete argument list; parsed with shell-style quoting. Include `acp` when overriding. |
+| `HERMES_OMP_ACP_MCP_ENABLED` | `true` | Enable forwarding OMP's global MCP definitions. Set `false` to skip the MCP file and send no MCP servers. |
 | `PI_CODING_AGENT_DIR` | `~/.omp/agent` | Select OMP's agent directory. The provider reads `mcp.json` from this directory; OMP also uses it for its own agent data. |
 
 These variables must be available to the Hermes process, including a gateway launched as a service.
 
 ### MCP servers
 
-Keep MCP server definitions in OMP's configuration, not in a second Hermes `mcp_servers` list. For each completion, the provider reads the OMP file and supplies the active server definitions to `session/new.mcpServers`. OMP connects to the servers and executes their tools.
+Keep MCP server definitions in OMP's configuration, not in a second Hermes `mcp_servers` list. Forwarding is **enabled by default**: for each completion, the provider reads the OMP file and supplies the active server definitions to `session/new.mcpServers`. OMP connects to the servers and executes their tools.
+
+To disable forwarding without editing OMP's configuration:
+
+```sh
+export HERMES_OMP_ACP_MCP_ENABLED=false
+```
+
+Set `true` or unset the variable to enable it again. Values are case-insensitive with surrounding whitespace ignored: `0`/`false`/`no`/`off` disable; `1`/`true`/`yes`/`on`, an empty value, or an unset variable enable. Other values reject completions with a configuration error. Apply the variable to the Hermes process and restart a running gateway.
+
+When disabled, the provider does not read or validate `mcp.json`, resolve MCP commands, or forward any server definitions. This leaves OMP's original file, ordinary OMP sessions, native OMP tools, and Hermes-managed tools unchanged.
 
 | Environment | MCP file read by the provider |
 | --- | --- |
@@ -107,7 +118,7 @@ For example, an existing OMP file can define Aside as:
 
 The provider resolves stdio executables to absolute paths, checking a literal server `env.PATH`, then the Hermes process's `PATH` with `~/.local/bin` as a fallback. This does not change the gateway's PATH or install missing commands.
 
-Configuration is reread for each completion. A missing file supplies no MCP servers; a missing file in a custom directory does not trigger a retry at the default location. Model discovery does not read the MCP file or start MCP servers, so a working model picker does not prove MCP connectivity.
+The toggle is checked for each completion; the MCP file is reread only when forwarding is enabled. A missing file supplies no MCP servers; a missing file in a custom directory does not trigger a retry at the default location. Model discovery does not read the toggle or MCP file or start MCP servers, so a working model picker does not prove MCP connectivity.
 
 Only this global file is read: project files and other tools' MCP configurations are not discovered. Stdio, HTTP, and SSE definitions can be forwarded; HTTP and SSE require support advertised by the OMP ACP agent.
 

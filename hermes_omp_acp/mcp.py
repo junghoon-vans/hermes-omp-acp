@@ -148,6 +148,14 @@ def _translate_server(name: str, server: object, enabled_by_name: bool) -> dict 
 
 def load_mcp_servers() -> list[dict]:
     """Load and translate the global OMP MCP config for ACP."""
+    enabled = os.environ.get("HERMES_OMP_ACP_MCP_ENABLED", "").strip().lower()
+    if enabled in {"0", "false", "no", "off"}:
+        return []
+    if enabled not in {"", "1", "true", "yes", "on"}:
+        raise RuntimeError(
+            "HERMES_OMP_ACP_MCP_ENABLED must be true/false, 1/0, yes/no, or on/off."
+        )
+
     config = _read_config()
     if config is None:
         return []

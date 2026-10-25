@@ -18,6 +18,8 @@ Confirm OMP authentication works and the selected model is available to that acc
 
 A successful model picker does not check MCP connectivity: model discovery deliberately sends no MCP servers. Check the environment of the process that launches Hermes, not just an interactive terminal:
 
+First check `HERMES_OMP_ACP_MCP_ENABLED`. `false`, `0`, `no`, or `off` intentionally disables forwarding. Unset it or set `true` to enable forwarding; restart a running gateway after changing its environment. The provider does not change the original OMP file.
+
 1. Determine whether `PI_CODING_AGENT_DIR` is set. The provider reads `<directory>/mcp.json`, or `~/.omp/agent/mcp.json` when unset or empty.
 2. Confirm that file exists. A missing file results in no MCP servers; a missing custom-path file does not fall back to the default path.
 3. Check the server's entry in `mcpServers` and the `enabled`, `enabledServers`, and `disabledServers` settings. The denylist wins.
@@ -34,7 +36,9 @@ The provider checks a literal server `env.PATH`, then the process PATH and `~/.l
 
 ## MCP configuration rejected
 
-Malformed JSON, a non-object configuration, or an invalid active server definition stops the completion before OMP is spawned. Fix the selected file's structure and field types. Model discovery can still succeed because it does not read this file.
+When forwarding is enabled, malformed JSON, a non-object configuration, or an invalid active server definition stops the completion before OMP is spawned. Fix the selected file's structure and field types. Model discovery can still succeed because it does not read this file. If MCP is intentionally unnecessary for this provider, `HERMES_OMP_ACP_MCP_ENABLED=false` skips the file entirely.
+
+An error naming `HERMES_OMP_ACP_MCP_ENABLED` means the toggle itself is invalid. Use `true`/`false`, `1`/`0`, `yes`/`no`, or `on`/`off` (case-insensitive); unset or empty means enabled. Model discovery skips this check too.
 
 If the error says the agent does not support a configured HTTP or SSE transport, check the OMP version and the capabilities it advertises during ACP initialization. Do not infer transport support from the model list.
 

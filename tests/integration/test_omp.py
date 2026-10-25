@@ -145,6 +145,25 @@ class NativeOmpTests(unittest.TestCase):
         self.assertFalse(marker.exists(), "A denied server must not be started by OMP")
         self.assert_native_read_and_model_selection()
 
+    def test_disabled_mcp_does_not_start_configured_servers(self):
+        marker = self.root / "mcp-server-started"
+        agent_dir = Path(os.environ["PI_CODING_AGENT_DIR"])
+        (agent_dir / "mcp.json").write_text(json.dumps({"mcpServers": {
+            "blocked": {
+                "command": sys.executable,
+                "args": ["-c", f"from pathlib import Path; Path({str(marker)!r}).write_text('started')"],
+            },
+        }}))
+        with patch.dict(os.environ, {"HERMES_OMP_ACP_MCP_ENABLED": "false"}):
+            with closing(self.profile.create_client(acp_cwd=str(self.root))) as client:
+                response = client.chat.completions.create(
+                    model="fixture/model-b", timeout=40,
+                    messages=[{"role": "user", "content": f"Read {self.probe} and return only its contents."}],
+                )
+        self.assertEqual(response.choices[0].message.content, self.token)
+        self.assertFalse(marker.exists(), "Disabling forwarding must prevent MCP server startup")
+        self.assert_native_read_and_model_selection()
+
     def test_unknown_model_does_not_run_native_omp_inference(self):
         with closing(self.profile.create_client(acp_cwd=str(self.root))) as client:
             with self.assertRaisesRegex(RuntimeError, "not offered"):

@@ -34,7 +34,7 @@ Compatibility still depends on Hermes's shared provider, bridge, environment, an
 
 ## MCP configuration flow
 
-1. Before spawning OMP for a completion, read `mcp.json` from `PI_CODING_AGENT_DIR`, or `~/.omp/agent` when the variable is unset or empty. Resolve `~` in the directory. No project or third-party discovery is performed.
+1. Before spawning OMP for a completion, check `HERMES_OMP_ACP_MCP_ENABLED` (enabled when unset or empty). A false value returns an empty server list without reading the file or resolving commands; an invalid value aborts the completion. When enabled, read `mcp.json` from `PI_CODING_AGENT_DIR`, or `~/.omp/agent` when the directory variable is unset or empty. Resolve `~` in the directory. No project or third-party discovery is performed.
 2. Select active entries from `mcpServers`: `disabledServers` wins, then `enabledServers` can override an entry's `enabled: false`. Other entries are enabled by default.
 3. Convert the selected definitions to ACP transport records and resolve stdio commands to absolute paths. A missing file produces an empty list. Invalid configuration or an unresolved active command aborts before OMP is spawned.
 4. Initialize the ACP connection and check the agent's HTTP/SSE capabilities before sending definitions that use those transports.
@@ -43,7 +43,7 @@ Compatibility still depends on Hermes's shared provider, bridge, environment, an
 
 OMP's ACP mode does not automatically discover its on-disk MCP servers. Forwarding the definitions supplies them without creating a separate provider-side MCP connection manager or a second maintained server list.
 
-Model discovery uses an empty MCP list and skips configuration loading. Each completion rereads the file; the provider does not watch it or retain MCP connections across completions. Missing files and an empty active list are allowed, while a malformed existing file fails the completion even if model discovery succeeds.
+Model discovery uses an empty MCP list and skips both the toggle and configuration loading. Each completion checks the toggle again and rereads the file only when enabled; the provider does not watch it or retain MCP connections across completions. Missing files and an empty active list are allowed, while a malformed existing file fails the completion only when forwarding is enabled. Disabling forwarding leaves native OMP and Hermes-managed tools unchanged.
 
 The native file has more options than the ACP transport records and OMP's mapper preserve. In OMP 18.12.6, the ACP handler constructs fresh internal server configs from standard fields, so raw extra keys and `_meta` do not restore server-specific options. See [MCP configuration compatibility](limitations.md#mcp-configuration-compatibility) for the field/version matrix and warning behavior; this is not full-fidelity export of OMP's configuration.
 
