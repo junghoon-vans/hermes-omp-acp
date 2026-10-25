@@ -19,7 +19,7 @@ export PYTHONPATH="$HERMES_SOURCE"
 uv run --project "$HERMES_SOURCE" --no-sync python -P -m unittest discover -s tests -v
 ```
 
-These deterministic tests exercise model discovery and strict selection, synchronous and asynchronous callers, ordered buffered streaming, readiness-gated concurrent sessions, timeout/cancellation/close with child-process reaping, permission cancellation, safe file write/read-back, filesystem restrictions/redaction, reasoning/tool-call conversion, and missing or exited executables. They need no model credentials and use the public provider/client interface rather than private module imports. Provider minimums remain Hermes 0.21.4 and OMP 15.0.0, with Python matching Hermes.
+These deterministic tests exercise model discovery and strict selection, synchronous and asynchronous callers, ordered buffered streaming, readiness-gated concurrent sessions, timeout/cancellation/close with child-process reaping, permission cancellation, safe file write/read-back, filesystem restrictions/redaction, reasoning/tool-call conversion, and missing or exited executables. They need no model credentials and use the public provider/client interface rather than private module imports. Provider minimums are Hermes 0.21.4 and OMP 15.7.6, with Python matching Hermes.
 
 ## Native OMP integration
 
@@ -33,7 +33,7 @@ Set `OMP_INTEGRATION_COMMAND` to an absolute executable path to test a specific 
 
 The suite creates isolated homes. Keep any manual Hermes or OMP checks isolated too: point `HERMES_HOME`, `PI_CODING_AGENT_DIR`, and any other profile/data paths at temporary directories, and do not run tests against or modify a production or personal profile.
 
-CI runs both the provider and native integration suites against the installed wheel in two combinations: the latest stable Hermes and latest OMP on Python 3.14, and Hermes 0.21.4 (`v2026.9.21`) with OMP 15.0.0 on Python 3.11. Recheck compatibility-sensitive changes locally as well. See [verification](docs/model-provider/verification.md) for the exercised scenarios and minimum-version boundaries.
+CI runs both the unit and native integration suites against the provider wheel in two combinations: the latest stable Hermes and latest OMP with Python 3.14, and Hermes 0.21.4 (`v2026.9.21`) with OMP 15.7.6 and Python 3.11. Recheck the minimum combination locally when changing compatibility-sensitive code. See [verification](docs/model-provider/verification.md) for the CI scope and minimum-version boundaries.
 
 ## Build the distribution
 

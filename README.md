@@ -13,7 +13,7 @@ Hermes sends requests to `omp acp`; OMP handles model inference. Select an OMP `
 ## Requirements
 
 - **Hermes Agent 0.21.4 or later** ([release `v2026.9.21`](https://github.com/NousResearch/hermes-agent/releases/tag/v2026.9.21)).
-- **OMP 15.0.0 or later**, with `omp` on the Hermes process's `PATH` and a configured model.
+- **OMP 15.7.6 or later**, with `omp` on the Hermes process's `PATH` and a configured model. This version fixes activation of client-provided MCP tools in ACP sessions.
 - **Python matching Hermes:** 3.11–3.13 for Hermes 0.21.4; 3.14 for Hermes 0.22.x.
 
 ## Quick start

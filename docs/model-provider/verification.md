@@ -2,7 +2,7 @@
 
 ## Continuous integration
 
-[CI](https://github.com/junghoon-vans/hermes-omp-acp/actions) checks the latest stable Hermes release with OMP's npm `latest` version on Python 3.14, and the minimum supported Hermes 0.21.4 (`v2026.9.21`) with OMP 15.0.0 on Python 3.11. Both jobs use the latest Bun runtime. CI resolves each Hermes release to a commit SHA and records the source revision and executable versions in the logs.
+[CI](https://github.com/junghoon-vans/hermes-omp-acp/actions) checks both the latest stable Hermes release with OMP's npm `latest` version on Python 3.14, and the minimum supported Hermes 0.21.4 (`v2026.9.21`) with OMP 15.7.6 on Python 3.11. Both jobs use the latest Bun runtime. CI resolves each Hermes release to a commit SHA and records the source revision and executable versions in the logs.
 
 CI builds and installs the wheel, then runs the ACP regression suite and native OMP integration suite. The native tests use a local OpenAI-compatible model endpoint to exercise provider discovery, model-picker availability, model selection, async responses, native file reading, MCP tool execution, and Hermes CLI output without external credentials.
 
@@ -27,10 +27,10 @@ Lifecycle regressions use peer readiness gates to establish overlapping sessions
 The minimum versions are listed in [Requirements](../../README.md#requirements).
 
 - Hermes 0.21.4 adds generic external-process provider selection and setup. Earlier direct-provider runtime support alone does not cover the model picker. Its release tag is [`v2026.9.21`](https://github.com/NousResearch/hermes-agent/releases/tag/v2026.9.21).
-- OMP 15.0.0 adds the [`omp acp` subcommand](https://github.com/can1357/oh-my-pi/commit/275108974aa96f97931fca8353d4f517fd018b00). OMP 14.9.9 exposes the older `--mode acp` route.
-- Hermes 0.21.4 declares Python `>=3.11,<3.14`; Hermes 0.22.x uses Python 3.14. The local minimum-combination checks ran with Python 3.11.15.
+- OMP 15.7.6 fixes activation of client-provided MCP tools in ACP sessions ([upstream PR #1598](https://github.com/can1357/oh-my-pi/pull/1598)). Earlier versions can register those tools without making them available to the model. The `omp acp` subcommand itself was introduced in OMP 15.0.0, but that is not sufficient for MCP support.
+- Hermes 0.21.4 declares Python `>=3.11,<3.14`; Hermes 0.22.x uses Python 3.14.
 
-CI runs both suites against the minimum combination. Local standalone-client verification also exercised Hermes 0.21.4 / Python 3.11.15 / OMP 15.0.0 and Hermes 0.22.5 / Python 3.14.6 / OMP 18.12.6. See [Contributing](../../CONTRIBUTING.md#native-omp-integration) for the integration command and executable override.
+CI runs both test suites against the minimum combination, including real stdio MCP tool execution and disabled-server precedence. See [Contributing](../../CONTRIBUTING.md#native-omp-integration) for the integration command and executable override.
 
 ## Additional checks
 
