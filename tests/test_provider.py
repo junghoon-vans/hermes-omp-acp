@@ -23,6 +23,7 @@ class ProviderTests(unittest.TestCase):
         self.home = Path(temporary.name)
         environment = patch.dict(os.environ, {
             "HERMES_HOME": str(self.home),
+            "PI_CODING_AGENT_DIR": str(self.home / "omp"),
             "HERMES_OMP_ACP_COMMAND": sys.executable,
             "HERMES_OMP_ACP_ARGS": shlex.join([str(Path(__file__).with_name("acp_peer.py"))]),
         })
@@ -195,6 +196,34 @@ class ProviderTests(unittest.TestCase):
                     timeout=5,
                 )
         self.assertEqual(response.choices[0].message.content, "first second")
+
+    def test_invalid_mcp_config_blocks_tasks_without_breaking_model_discovery(self):
+        agent_dir = Path(os.environ["PI_CODING_AGENT_DIR"])
+        agent_dir.mkdir()
+        (agent_dir / "mcp.json").write_text('{"secret": "private-config-value", broken')
+        self.assertIn("fixture/model", self.profile.fetch_models(timeout=5))
+        with closing(self.client()) as client:
+            with self.assertRaisesRegex(RuntimeError, "MCP.*malformed") as error:
+                client.chat.completions.create(
+                    model="fixture/model", messages=[{"role": "user", "content": "Do the task"}],
+                    timeout=5,
+                )
+        self.assertNotIn("private-config-value", str(error.exception))
+        self.assertFalse((self.home / "prompt-executed").exists())
+
+    def test_unsupported_mcp_transport_blocks_tasks_before_execution(self):
+        agent_dir = Path(os.environ["PI_CODING_AGENT_DIR"])
+        agent_dir.mkdir()
+        (agent_dir / "mcp.json").write_text(
+            '{"mcpServers":{"remote":{"type":"http","url":"http://127.0.0.1:1/mcp"}}}'
+        )
+        with closing(self.client()) as client:
+            with self.assertRaisesRegex(RuntimeError, "does not support.*http"):
+                client.chat.completions.create(
+                    model="fixture/model", messages=[{"role": "user", "content": "Do the task"}],
+                    timeout=5,
+                )
+        self.assertFalse((self.home / "prompt-executed").exists())
 
 
     def test_acp_permission_requests_are_cancelled(self):

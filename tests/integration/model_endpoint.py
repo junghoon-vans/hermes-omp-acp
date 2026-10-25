@@ -10,6 +10,7 @@ class ModelEndpoint:
     def __init__(self, probe):
         self.requests = []
         self.errors = []
+        self.tool_name = "read"
         owner = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -28,7 +29,10 @@ class ModelEndpoint:
                 else:
                     delta = {"tool_calls": [{
                         "index": 0, "id": "read-probe", "type": "function",
-                        "function": {"name": "read", "arguments": json.dumps({"path": str(probe)})},
+                        "function": {
+                            "name": owner.tool_name,
+                            "arguments": json.dumps({"path": str(probe)} if owner.tool_name == "read" else {}),
+                        },
                     }]}
                     finish = "tool_calls"
                 chunks = [

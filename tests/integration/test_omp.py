@@ -30,8 +30,8 @@ class NativeOmpTests(unittest.TestCase):
         self.probe.write_text(self.token + "\n")
         self.endpoint = ModelEndpoint(self.probe)
         self.addCleanup(self.endpoint.close)
-        agent_dir = self.root / "omp"
-        agent_dir.mkdir()
+        agent_dir = self.root / ".omp" / "agent"
+        agent_dir.mkdir(parents=True)
         (agent_dir / "models.yml").write_text(json.dumps({"providers": {"fixture": {
             "baseUrl": self.endpoint.url, "api": "openai-completions", "auth": "none",
             "models": [{"id": name, "name": name, "reasoning": False,
@@ -91,6 +91,58 @@ class NativeOmpTests(unittest.TestCase):
                 self.assertEqual("".join(choice.delta.content or "" for choice in choices), self.token)
                 self.assertEqual(choices[-1].finish_reason, "stop")
         asyncio.run(exercise())
+        self.assert_native_read_and_model_selection()
+
+    def test_provider_uses_the_mcp_server_from_the_omp_agent_directory(self):
+        self.endpoint.tool_name = "mcp__probe_token"
+        agent_dir = Path(os.environ["PI_CODING_AGENT_DIR"])
+        # A user-local executable must work even when a service omits ~/.local/bin.
+        local_bin = self.root / ".local" / "bin"
+        local_bin.mkdir(parents=True)
+        command = local_bin / "token-mcp"
+        command.symlink_to(Path(sys.executable).resolve())
+        (agent_dir / "mcp.json").write_text(json.dumps({"mcpServers": {
+            "probe": {
+                "command": "token-mcp",
+                "args": [str(Path(__file__).with_name("token_server.py")), str(self.probe)],
+            },
+        }}))
+        with closing(self.profile.create_client(acp_cwd=str(self.root))) as client:
+            response = client.chat.completions.create(
+                model="fixture/model-b", timeout=40,
+                messages=[{"role": "user", "content": "Read the token through the probe MCP server."}],
+            )
+        self.assertEqual(response.choices[0].message.content, self.token)
+        self.assert_native_read_and_model_selection()
+
+    def test_default_omp_config_respects_disabled_server_precedence(self):
+        self.endpoint.tool_name = "mcp__probe_token"
+        marker = self.root / "blocked-server-started"
+        config = {
+            "mcpServers": {
+                "probe": {
+                    "enabled": False, "command": sys.executable,
+                    "args": [str(Path(__file__).with_name("token_server.py")), str(self.probe)],
+                },
+                "blocked": {
+                    "enabled": False, "command": sys.executable,
+                    "args": ["-c", f"from pathlib import Path; Path({str(marker)!r}).write_text('started')"],
+                },
+                "inactive": {"enabled": False},
+            },
+            "enabledServers": ["probe", "blocked"],
+            "disabledServers": ["blocked"],
+        }
+        (self.root / ".omp" / "agent" / "mcp.json").write_text(json.dumps(config))
+        with patch.dict(os.environ):
+            os.environ.pop("PI_CODING_AGENT_DIR")
+            with closing(self.profile.create_client(acp_cwd=str(self.root))) as client:
+                response = client.chat.completions.create(
+                    model="fixture/model-b", timeout=40,
+                    messages=[{"role": "user", "content": "Read the token through the probe MCP server."}],
+                )
+        self.assertEqual(response.choices[0].message.content, self.token)
+        self.assertFalse(marker.exists(), "A denied server must not be started by OMP")
         self.assert_native_read_and_model_selection()
 
     def test_unknown_model_does_not_run_native_omp_inference(self):
