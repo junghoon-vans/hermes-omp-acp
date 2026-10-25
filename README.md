@@ -77,8 +77,39 @@ For local source installation and development, see [CONTRIBUTING.md](CONTRIBUTIN
 | --- | --- | --- |
 | `HERMES_OMP_ACP_COMMAND` | `omp` | Override the executable, for example with an absolute path. |
 | `HERMES_OMP_ACP_ARGS` | `acp` | Replace the complete argument list; parsed with shell-style quoting. Include `acp` when overriding. |
+| `PI_CODING_AGENT_DIR` | `~/.omp/agent` | Select OMP's agent directory. The provider reads `mcp.json` from this directory; OMP also uses it for its own agent data. |
 
 These variables must be available to the Hermes process, including a gateway launched as a service.
+
+### MCP servers
+
+Keep MCP server definitions in OMP's configuration, not in a second Hermes `mcp_servers` list. For each completion, the provider reads the OMP file and supplies the active server definitions to `session/new.mcpServers`. OMP connects to the servers and executes their tools.
+
+| Environment | MCP file read by the provider |
+| --- | --- |
+| `PI_CODING_AGENT_DIR` unset or empty | `~/.omp/agent/mcp.json` |
+| `PI_CODING_AGENT_DIR` set | `$PI_CODING_AGENT_DIR/mcp.json` |
+
+The directory supports `~` expansion; the filename is always `mcp.json`. Set the variable in the environment that launches Hermes, including its service configuration when using a gateway. This selects OMP's agent directory, not just an alternative MCP file.
+
+For example, an existing OMP file can define Aside as:
+
+```json
+{
+  "mcpServers": {
+    "aside": {
+      "command": "aside",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+The provider resolves stdio executables to absolute paths, checking a literal server `env.PATH`, then the Hermes process's `PATH` with `~/.local/bin` as a fallback. This does not change the gateway's PATH or install missing commands.
+
+Configuration is reread for each completion. A missing file supplies no MCP servers; a missing file in a custom directory does not trigger a retry at the default location. Model discovery does not read the MCP file or start MCP servers, so a working model picker does not prove MCP connectivity.
+
+Only this global file is read: project files and other tools' MCP configurations are not discovered. Stdio, HTTP, and SSE definitions can be forwarded; HTTP and SSE require support advertised by the OMP ACP agent. **OMP-only fields such as `instructions: false` cannot be preserved by this translation.** Review [MCP compatibility limits](docs/model-provider/limitations.md#mcp-configuration-compatibility) before reusing settings that depend on those fields. For missing tools or launch failures, see [MCP troubleshooting](docs/model-provider/troubleshooting.md#mcp-tools-missing).
 
 ## Official delegation model routes
 

@@ -10,6 +10,7 @@
 - [`client.py`](../../hermes_omp_acp/client.py) exposes the Hermes-compatible client and adapts synchronous and asynchronous callers.
 - [`_bridge.py`](../../hermes_omp_acp/_bridge.py) converts messages and tool schemas into prompts, then converts text and reasoning into completion objects and buffered stream chunks.
 - [`_session.py`](../../hermes_omp_acp/_session.py) owns ACP negotiation, callbacks and filesystem policy, subprocesses, stderr, deadlines, and cancellation.
+- [`mcp.py`](../../hermes_omp_acp/mcp.py) translates the global OMP MCP configuration into ACP server definitions; `_session.py` sends them when creating a completion session.
 
 The client calls the runtime's `list_models`, `run`, and `close` interfaces. SDK connections, child processes, callback buffers, and stderr tasks stay inside the runtime rather than crossing the interface as a tuple. A single runtime owns the active-session tracking for each client.
 
@@ -25,8 +26,23 @@ Incoming message and reasoning chunks are collected in wire order before the pro
 
 One timeout budget covers initialization, session creation, model selection, and prompting. Requests also monitor child-process exit so a dead peer reports its failure instead of waiting for the response deadline. Child shutdown can take additional time. Each session tracks its own process and response buffers; `close()` stops active requests and their processes.
 
-The client uses an explicit session workspace when supplied, otherwise Hermes's logical working-directory resolver. Model discovery disables filesystem callbacks. Sessions send an empty `mcpServers` list; this implementation does not forward OMP's on-disk MCP configuration.
+The client uses an explicit session workspace when supplied, otherwise Hermes's logical working-directory resolver. Model discovery disables filesystem callbacks, skips MCP configuration loading, and sends an empty `mcpServers` list. Completion sessions forward the supported global OMP MCP definitions as described below.
 
 Native ACP permission requests are cancelled by the plugin's own callback, preserving the previous behavior. See [Known limitations](limitations.md#native-acp-approval-requests) for the permission and filesystem policies.
 
 Compatibility still depends on Hermes's shared provider, bridge, environment, and safety interfaces, plus the SDK version range declared in [package metadata](../../pyproject.toml). It no longer depends on the internal `CopilotACPClient` interface. See [Verification](verification.md) for the exercised combinations and scenarios.
+
+## MCP configuration flow
+
+1. Before spawning OMP for a completion, read `mcp.json` from `PI_CODING_AGENT_DIR`, or `~/.omp/agent` when the variable is unset or empty. Resolve `~` in the directory. No project or third-party discovery is performed.
+2. Select active entries from `mcpServers`: `disabledServers` wins, then `enabledServers` can override an entry's `enabled: false`. Other entries are enabled by default.
+3. Convert the selected definitions to ACP transport records and resolve stdio commands to absolute paths. A missing file produces an empty list. Invalid configuration or an unresolved active command aborts before OMP is spawned.
+4. Initialize the ACP connection and check the agent's HTTP/SSE capabilities before sending definitions that use those transports.
+5. Send the list in `session/new.mcpServers`. OMP owns MCP connections, tool execution, and runtime resolution of command-backed environment/header values. The provider does not execute `!command` expressions or copy credentials into Hermes configuration.
+6. Select the requested model, then send the conversation prompt. The standalone runtime's existing cancellation policy still applies to native ACP permission requests.
+
+OMP's ACP mode does not automatically discover its on-disk MCP servers. Forwarding the definitions supplies them without creating a separate provider-side MCP connection manager or a second maintained server list.
+
+Model discovery uses an empty MCP list and skips configuration loading. Each completion rereads the file; the provider does not watch it or retain MCP connections across completions. Missing files and an empty active list are allowed, while a malformed existing file fails the completion even if model discovery succeeds.
+
+The native file has more options than ACP can represent. See [MCP configuration compatibility](limitations.md#mcp-configuration-compatibility) for forwarded fields and the warning behavior; this is not full-fidelity export of OMP's configuration.
