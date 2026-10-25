@@ -19,7 +19,7 @@ export PYTHONPATH="$HERMES_SOURCE"
 uv run --project "$HERMES_SOURCE" --no-sync python -P -m unittest discover -s tests -v
 ```
 
-These deterministic tests exercise model discovery and strict selection, synchronous and asynchronous callers, buffered streaming, concurrent session isolation, permission cancellation, filesystem restrictions/redaction, reasoning and tool-call conversion, and missing or exited executables. They need no model credentials. Provider minimums remain Hermes 0.21.4 and OMP 15.0.0, with Python matching Hermes.
+These deterministic tests exercise model discovery and strict selection, synchronous and asynchronous callers, ordered buffered streaming, readiness-gated concurrent sessions, timeout/cancellation/close with child-process reaping, permission cancellation, safe file write/read-back, filesystem restrictions/redaction, reasoning/tool-call conversion, and missing or exited executables. They need no model credentials and use the public provider/client interface rather than private module imports. Provider minimums remain Hermes 0.21.4 and OMP 15.0.0, with Python matching Hermes.
 
 ## Native OMP integration
 

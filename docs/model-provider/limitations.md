@@ -12,7 +12,7 @@ When OMP sends a `session/request_permission` request, the plugin returns:
 
 This native ACP request is not connected to a Slack approval card. The plugin does not wait for a person's decision or select an Allow once / Always allow option for OMP. An operation waiting for that permission receives cancellation instead.
 
-This is an explicit policy of the standalone client, not an inherited Copilot handler. The plugin cannot obtain interactive approval through this callback, so it cancels the request. See the [client implementation](../../hermes_omp_acp/client.py).
+This is an explicit policy of the standalone client, not an inherited Copilot handler. The plugin cannot obtain interactive approval through this callback, so it cancels the request. See the [session callbacks](../../hermes_omp_acp/_session.py).
 
 Hermes-owned tool calls are a separate path: when a model response returns a tool call for Hermes to execute, Hermes applies its own tool and approval mechanisms. That does not establish approval support for OMP's native ACP requests.
 
@@ -27,11 +27,11 @@ The plugin's ACP filesystem callbacks also enforce these checks:
 - File content returned by reads is passed through Hermes's secret redaction.
 - A `fs/write_text_file` request that requires interactive write approval is rejected by the bridge.
 
-These checks describe the ACP filesystem callbacks, not every possible OMP tool execution path. The [client implementation](../../hermes_omp_acp/client.py) applies Hermes's shared safety and redaction helpers.
+These checks describe the ACP filesystem callbacks, not every possible OMP tool execution path. The [session implementation](../../hermes_omp_acp/_session.py) applies Hermes's shared safety and redaction helpers.
 
 ## Verification boundary
 
-The standalone client's automated local checks cover permission cancellation, safe filesystem reads, secret redaction, rejection of out-of-workspace access and protected writes, and completion conversion. Native OMP integration checks cover file reading through actual OMP tool execution. They do not establish Slack end-to-end behavior.
+The standalone client's automated local checks cover permission cancellation, safe filesystem reads and writes with read-back, secret redaction, rejection of out-of-workspace and symlink access, protected writes, and completion conversion. Native OMP integration checks cover file reading through actual OMP tool execution. They do not establish Slack end-to-end behavior.
 
 The earlier implementation was exercised for read-only Slack responses, thread context, actual file reading, cancellation of an active turn, and a subsequent recovery request. Those Slack checks have not been repeated with the standalone transport.
 

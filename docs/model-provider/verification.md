@@ -8,7 +8,9 @@ CI builds and installs the wheel, then runs the ACP regression suite and native 
 
 Each integration scenario uses temporary Hermes and OMP homes. The model endpoint requests a file read, then produces its response from the value returned by the actual OMP tool execution.
 
-The standalone client's ACP peer regressions also exercise permission cancellation, safe reads and secret redaction, rejected out-of-workspace access and protected writes, reasoning/tool-call conversion, concurrent session isolation, model discovery from an async caller, and peer-exit diagnostics. These use actual subprocess connections through the SDK rather than mocked transport.
+The standalone client's ACP peer regressions also exercise permission cancellation, safe reads/writes with read-back, secret redaction, rejected out-of-workspace and symlink access, protected writes, reasoning/tool-call conversion, model discovery from an async caller, and peer-exit diagnostics. These use actual subprocess connections through the SDK rather than mocked transport.
+
+Lifecycle regressions use peer readiness gates to establish overlapping sessions before releasing or cancelling them. They verify that timeout or caller cancellation reaps only the affected child while a sibling still completes, and that `close()` stops and reaps all active children. Additional cases cover one timeout budget across initialization/session creation/model selection, and ordered text/reasoning bursts followed immediately by the prompt response. The tests use the public provider/client interface, not private module names or transport mocks.
 
 ## Minimum-version boundaries
 

@@ -5,6 +5,14 @@
 - Implements `OmpACPClient` independently using the official `agent-client-protocol` Python SDK for subprocess transport and JSON-RPC.
 - Reuses Hermes's generic OpenAI completion/tool-call bridge, subprocess environment handling, filesystem safety checks, secret redaction, and logical workspace resolution. It does not import or subclass the Copilot ACP client.
 
+## Module responsibilities
+
+- [`client.py`](../../hermes_omp_acp/client.py) exposes the Hermes-compatible client and adapts synchronous and asynchronous callers.
+- [`_bridge.py`](../../hermes_omp_acp/_bridge.py) converts messages and tool schemas into prompts, then converts text and reasoning into completion objects and buffered stream chunks.
+- [`_session.py`](../../hermes_omp_acp/_session.py) owns ACP negotiation, callbacks and filesystem policy, subprocesses, stderr, deadlines, and cancellation.
+
+The client calls the runtime's `list_models`, `run`, and `close` interfaces. SDK connections, child processes, callback buffers, and stderr tasks stay inside the runtime rather than crossing the interface as a tuple. A single runtime owns the active-session tracking for each client.
+
 ## Runtime behavior
 
 Each completion opens a new OMP process and ACP session, sending the conversation history with the request. Responses are buffered before being returned as completion objects or stream chunks.

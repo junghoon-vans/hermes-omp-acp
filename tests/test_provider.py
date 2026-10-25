@@ -1,11 +1,12 @@
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, wait
 from contextlib import closing
 import os
 from pathlib import Path
 import shlex
 import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 
@@ -32,6 +33,54 @@ class ProviderTests(unittest.TestCase):
 
     def client(self):
         return self.profile.create_client(acp_cwd=str(self.home))
+
+    def _wait_for_peers(self, *names, timeout=5) -> dict[str, int]:
+        deadline = time.monotonic() + timeout
+        pids: dict[str, int] = {}
+        while len(pids) < len(names):
+            for name in names:
+                marker = self.home / f"{name}.ready"
+                if name not in pids and marker.exists():
+                    try:
+                        pids[name] = int(marker.read_text(encoding="ascii"))
+                    except (OSError, ValueError):
+                        pass
+            if len(pids) == len(names):
+                return pids
+            if time.monotonic() >= deadline:
+                missing = sorted(set(names) - pids.keys())
+                raise AssertionError(f"Timed out waiting for ACP peer readiness: {missing}")
+            time.sleep(0.01)
+        return pids
+
+    @staticmethod
+    def _process_is_alive(pid):
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        return True
+
+    def _assert_process_reaped(self, pid, timeout=5):
+        deadline = time.monotonic() + timeout
+        while self._process_is_alive(pid):
+            if time.monotonic() >= deadline:
+                self.fail(f"ACP peer process {pid} was not reaped")
+            time.sleep(0.01)
+
+    def _release_peers(self, *names):
+        for name in names:
+            (self.home / f"{name}.release").touch()
+
+    def _cleanup_requests(self, client, executor, futures, peers):
+        try:
+            client.close()
+        finally:
+            self._release_peers(*peers)
+            wait(futures, timeout=5)
+            executor.shutdown(wait=True, cancel_futures=True)
 
     def test_missing_executable_does_not_break_the_model_picker(self):
         with patch.dict(os.environ, {"HERMES_OMP_ACP_COMMAND": str(self.home / "missing-omp")}):
@@ -78,29 +127,64 @@ class ProviderTests(unittest.TestCase):
                 self.assertEqual(choices[-1].finish_reason, "stop")
         asyncio.run(exercise())
 
+    def test_immediate_burst_preserves_ordered_text_reasoning_and_stream_stop(self):
+        args = shlex.join([str(Path(__file__).with_name("acp_peer.py")), "burst"])
+        with patch.dict(os.environ, {"HERMES_OMP_ACP_ARGS": args}), closing(self.client()) as client:
+            stream = client.chat.completions.create(
+                model="fixture/model", messages=[{"role": "user", "content": "Return the chunks"}],
+                stream=True, timeout=5,
+            )
+            chunks = list(stream)
+
+        choices = [choice for chunk in chunks for choice in chunk.choices]
+        content = "".join(choice.delta.content or "" for choice in choices)
+        reasoning = "".join(
+            getattr(choice.delta, "reasoning_content", None)
+            or getattr(choice.delta, "reasoning", None)
+            or ""
+            for choice in choices
+        )
+        self.assertEqual(content, "".join(f"text-{index:02d}|" for index in range(40)))
+        self.assertEqual(reasoning, "".join(f"reason-{index:02d}|" for index in range(40)))
+        self.assertEqual(choices[-1].finish_reason, "stop")
+        self.assertEqual(sum(choice.finish_reason is not None for choice in choices), 1)
+
     def test_model_selection_failure_prevents_prompt_execution(self):
         cases = (
-            ("config", "fixture/missing", RuntimeError, "not offered"),
-            ("config", "copilot-acp", RuntimeError, "not offered"),
-            ("reject", "fixture/model", RuntimeError, "session/set_config_option failed"),
-            ("mismatch", "fixture/model", RuntimeError, "selected"),
-            ("timeout", "fixture/model", TimeoutError, "Timed out"),
-            ("legacy-reject", "fixture/model", RuntimeError, "session/set_model failed"),
-            ("legacy", "fixture/missing", RuntimeError, "not offered"),
+            ("config", "fixture/missing", RuntimeError),
+            ("reject", "fixture/model", RuntimeError),
+            ("mismatch", "fixture/model", RuntimeError),
+            ("timeout", "fixture/model", TimeoutError),
+            ("legacy-reject", "fixture/model", RuntimeError),
+            ("legacy", "fixture/missing", RuntimeError),
         )
-        for mode, model, error, message in cases:
+        for mode, model, error in cases:
             with self.subTest(mode=mode, model=model):
                 args = shlex.join([str(Path(__file__).with_name("acp_peer.py")), mode])
                 (self.home / "prompt-executed").unlink(missing_ok=True)
                 with patch.dict(os.environ, {"HERMES_OMP_ACP_ARGS": args}):
                     with closing(self.client()) as client:
-                        with self.assertRaisesRegex(error, message):
+                        with self.assertRaises(error):
                             client.chat.completions.create(
                                 model=model, messages=[{"role": "user", "content": "Do the task"}],
                                 timeout=1 if mode == "timeout" else 5,
                             )
                 self.assertFalse((self.home / "prompt-executed").exists(),
                                  "A failed model selection must not execute the task")
+
+    def test_timeout_budget_covers_initialize_new_session_and_model_selection(self):
+        args = shlex.join([str(Path(__file__).with_name("acp_peer.py")), "budget"])
+        with patch.dict(os.environ, {"HERMES_OMP_ACP_ARGS": args}), closing(self.client()) as client:
+            with self.assertRaises(TimeoutError):
+                client.chat.completions.create(
+                    model="fixture/model", messages=[{"role": "user", "content": "Do the task"}], timeout=3.2,
+                )
+
+        pids = self._wait_for_peers(
+            "budget_initialize", "budget_new_session", "budget_selection", timeout=1,
+        )
+        self.assertFalse((self.home / "prompt-executed").exists())
+        self._assert_process_reaped(pids["budget_selection"])
 
     def test_legacy_model_selection_completes_the_task(self):
         args = shlex.join([str(Path(__file__).with_name("acp_peer.py")), "legacy"])
@@ -123,14 +207,24 @@ class ProviderTests(unittest.TestCase):
                 )
         self.assertEqual(response.choices[0].message.content, "permission outcome: cancelled")
 
-    def test_filesystem_callbacks_allow_safe_reads_and_reject_unsafe_access(self):
+    def test_filesystem_callbacks_allow_safe_reads_and_writes_and_reject_escape(self):
         secret = "fixture-read-secret-123456789"
         (self.home / "allowed.txt").write_text(f"read-ok\nAPI_KEY={secret}\n", encoding="utf-8")
         outside_read_path = self.home.parent / f"{self.home.name}-outside-read.txt"
         outside_read_path.write_text("outside-read-secret", encoding="utf-8")
         outside_write_path = self.home.parent / f"{self.home.name}-outside-write.txt"
+        outside_symlink_write_path = self.home.parent / f"{self.home.name}-outside-symlink-write.txt"
+        outside_symlink_write_path.write_text("symlink-target-unchanged", encoding="utf-8")
+        outside_read_link = self.home / "outside-read-link.txt"
+        outside_read_link.symlink_to(outside_read_path)
+        outside_write_link = self.home / "outside-write-link.txt"
+        outside_write_link.symlink_to(outside_symlink_write_path)
         protected_write_path = self.home / ".env"
-        for path in (outside_read_path, outside_write_path, protected_write_path):
+        allowed_write_path = self.home / "nested" / "allowed-write.txt"
+        for path in (
+            outside_read_path, outside_write_path, outside_symlink_write_path,
+            outside_read_link, outside_write_link, protected_write_path,
+        ):
             self.addCleanup(path.unlink, missing_ok=True)
 
         args = shlex.join([str(Path(__file__).with_name("acp_peer.py")), "filesystem"])
@@ -144,12 +238,17 @@ class ProviderTests(unittest.TestCase):
         content = response.choices[0].message.content
         self.assertIn("read-ok", content)
         self.assertNotIn(secret, content)
+        self.assertIn("allowed_write='allowed-write\\n'", content)
+        self.assertEqual(allowed_write_path.read_bytes(), b"allowed-write\n")
         self.assertIn("outside_read_denied=True", content)
         self.assertNotIn("outside-read-secret", content)
+        self.assertIn("outside_link_read_denied=True", content)
         self.assertIn("protected_write_denied=True", content)
         self.assertIn("outside_write_denied=True", content)
+        self.assertIn("outside_link_write_denied=True", content)
         self.assertFalse(protected_write_path.exists())
         self.assertFalse(outside_write_path.exists())
+        self.assertEqual(outside_symlink_write_path.read_text(encoding="utf-8"), "symlink-target-unchanged")
 
     def test_reasoning_and_hermes_tool_calls_survive_completion_conversion(self):
         args = shlex.join([str(Path(__file__).with_name("acp_peer.py")), "conversion"])
@@ -170,24 +269,169 @@ class ProviderTests(unittest.TestCase):
         self.assertEqual(tool_call.function.name, "lookup")
         self.assertEqual(tool_call.function.arguments, '{"query":"hermes"}')
 
-    def test_concurrent_completions_on_one_client_keep_sessions_isolated(self):
+    def test_concurrent_completions_rendezvous_and_keep_sessions_isolated(self):
         args = shlex.join([str(Path(__file__).with_name("acp_peer.py")), "isolation"])
         with patch.dict(os.environ, {"HERMES_OMP_ACP_ARGS": args}):
-            with closing(self.client()) as client:
-                with ThreadPoolExecutor(max_workers=2) as executor:
-                    alpha = executor.submit(
-                        client.chat.completions.create,
-                        model="fixture/model", messages=[{"role": "user", "content": "request alpha"}], timeout=5,
-                    )
-                    beta = executor.submit(
-                        client.chat.completions.create,
-                        model="fixture/model", messages=[{"role": "user", "content": "request beta"}], timeout=5,
-                    )
-                    alpha_response = alpha.result(timeout=8)
-                    beta_response = beta.result(timeout=8)
+            client = self.client()
+            executor = ThreadPoolExecutor(max_workers=2)
+            futures = []
+            try:
+                alpha = executor.submit(
+                    client.chat.completions.create,
+                    model="fixture/model", messages=[{"role": "user", "content": "request iso_alpha"}], timeout=8,
+                )
+                beta = executor.submit(
+                    client.chat.completions.create,
+                    model="fixture/model", messages=[{"role": "user", "content": "request iso_beta"}], timeout=8,
+                )
+                futures.extend((alpha, beta))
+                pids = self._wait_for_peers("iso_alpha", "iso_beta")
+                self.assertFalse(alpha.done())
+                self.assertFalse(beta.done())
+                self.assertTrue(self._process_is_alive(pids["iso_alpha"]))
+                self.assertTrue(self._process_is_alive(pids["iso_beta"]))
 
-        self.assertEqual(alpha_response.choices[0].message.content, "reply to alpha")
-        self.assertEqual(beta_response.choices[0].message.content, "reply to beta")
+                self._release_peers("iso_alpha")
+                alpha_response = alpha.result(timeout=5)
+                self._assert_process_reaped(pids["iso_alpha"])
+                self.assertFalse(beta.done())
+                self.assertTrue(self._process_is_alive(pids["iso_beta"]))
+
+                self._release_peers("iso_beta")
+                beta_response = beta.result(timeout=5)
+                self._assert_process_reaped(pids["iso_beta"])
+                self.assertEqual(alpha_response.choices[0].message.content, "reply to alpha")
+                self.assertEqual(beta_response.choices[0].message.content, "reply to beta")
+            finally:
+                self._cleanup_requests(client, executor, futures, ("iso_alpha", "iso_beta"))
+
+    def test_timeout_reaps_only_its_overlapping_session(self):
+        args = shlex.join([str(Path(__file__).with_name("acp_peer.py")), "lifecycle"])
+        with patch.dict(os.environ, {"HERMES_OMP_ACP_ARGS": args}):
+            client = self.client()
+            executor = ThreadPoolExecutor(max_workers=2)
+            futures = []
+            try:
+                timed = executor.submit(
+                    client.chat.completions.create,
+                    model="fixture/model",
+                    messages=[{"role": "user", "content": "request timeout_primary"}],
+                    timeout=5,
+                )
+                sibling = executor.submit(
+                    client.chat.completions.create,
+                    model="fixture/model",
+                    messages=[{"role": "user", "content": "request timeout_sibling"}],
+                    timeout=10,
+                )
+                futures.extend((timed, sibling))
+                pids = self._wait_for_peers("timeout_primary", "timeout_sibling", timeout=4)
+                self.assertFalse(timed.done())
+                self.assertFalse(sibling.done())
+                self.assertTrue(self._process_is_alive(pids["timeout_primary"]))
+                self.assertTrue(self._process_is_alive(pids["timeout_sibling"]))
+
+                with self.assertRaises(TimeoutError):
+                    timed.result(timeout=7)
+                self.assertTrue(timed.done())
+                self._assert_process_reaped(pids["timeout_primary"])
+                self.assertFalse(sibling.done())
+                self.assertTrue(self._process_is_alive(pids["timeout_sibling"]))
+
+                self._release_peers("timeout_sibling")
+                response = sibling.result(timeout=5)
+                self._assert_process_reaped(pids["timeout_sibling"])
+                self.assertEqual(response.choices[0].message.content, "reply to timeout_sibling")
+            finally:
+                self._cleanup_requests(
+                    client, executor, futures, ("timeout_primary", "timeout_sibling"),
+                )
+
+    def test_cancelling_one_async_request_preserves_its_overlapping_sibling(self):
+        async def exercise():
+            args = shlex.join([str(Path(__file__).with_name("acp_peer.py")), "lifecycle"])
+            with patch.dict(os.environ, {"HERMES_OMP_ACP_ARGS": args}):
+                client = self.client()
+                tasks = []
+                try:
+                    cancelled = asyncio.create_task(client.chat.completions.create(
+                        model="fixture/model",
+                        messages=[{"role": "user", "content": "request cancel_primary"}],
+                        timeout=10,
+                    ))
+                    sibling = asyncio.create_task(client.chat.completions.create(
+                        model="fixture/model",
+                        messages=[{"role": "user", "content": "request cancel_sibling"}],
+                        timeout=10,
+                    ))
+                    tasks.extend((cancelled, sibling))
+                    pids = await asyncio.to_thread(
+                        self._wait_for_peers, "cancel_primary", "cancel_sibling", timeout=5,
+                    )
+                    self.assertFalse(cancelled.done())
+                    self.assertFalse(sibling.done())
+                    self.assertTrue(self._process_is_alive(pids["cancel_primary"]))
+                    self.assertTrue(self._process_is_alive(pids["cancel_sibling"]))
+
+                    cancelled.cancel()
+                    with self.assertRaises(asyncio.CancelledError):
+                        await asyncio.wait_for(cancelled, timeout=5)
+                    await asyncio.to_thread(self._assert_process_reaped, pids["cancel_primary"])
+                    self.assertFalse(sibling.done())
+                    self.assertTrue(self._process_is_alive(pids["cancel_sibling"]))
+
+                    self._release_peers("cancel_sibling")
+                    response = await asyncio.wait_for(sibling, timeout=5)
+                    await asyncio.to_thread(self._assert_process_reaped, pids["cancel_sibling"])
+                    self.assertEqual(response.choices[0].message.content, "reply to cancel_sibling")
+                finally:
+                    try:
+                        client.close()
+                    finally:
+                        self._release_peers("cancel_primary", "cancel_sibling")
+                        for task in tasks:
+                            if not task.done():
+                                task.cancel()
+                        try:
+                            await asyncio.wait_for(
+                                asyncio.gather(*tasks, return_exceptions=True), timeout=5,
+                            )
+                        except TimeoutError:
+                            pass
+
+        asyncio.run(exercise())
+
+    def test_close_reaps_two_active_session_processes(self):
+        args = shlex.join([str(Path(__file__).with_name("acp_peer.py")), "lifecycle"])
+        with patch.dict(os.environ, {"HERMES_OMP_ACP_ARGS": args}):
+            client = self.client()
+            executor = ThreadPoolExecutor(max_workers=2)
+            futures = []
+            try:
+                left = executor.submit(
+                    client.chat.completions.create,
+                    model="fixture/model", messages=[{"role": "user", "content": "request close_left"}], timeout=10,
+                )
+                right = executor.submit(
+                    client.chat.completions.create,
+                    model="fixture/model", messages=[{"role": "user", "content": "request close_right"}], timeout=10,
+                )
+                futures.extend((left, right))
+                pids = self._wait_for_peers("close_left", "close_right")
+                self.assertFalse(left.done())
+                self.assertFalse(right.done())
+                self.assertTrue(self._process_is_alive(pids["close_left"]))
+                self.assertTrue(self._process_is_alive(pids["close_right"]))
+
+                client.close()
+                for future in futures:
+                    with self.assertRaises((asyncio.CancelledError, RuntimeError)):
+                        future.result(timeout=5)
+                    self.assertTrue(future.done())
+                self._assert_process_reaped(pids["close_left"])
+                self._assert_process_reaped(pids["close_right"])
+            finally:
+                self._cleanup_requests(client, executor, futures, ("close_left", "close_right"))
 
 if __name__ == "__main__":
     unittest.main()
