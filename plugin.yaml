@@ -1,6 +1,6 @@
 name: omp-acp-provider
 kind: model-provider
 version: 0.2.0
-requires_hermes: ">=0.21.4"
+requires_hermes: ">=0.22.5"
 description: Use Oh My Pi's models, provider configuration, and credentials in Hermes Agent through native ACP.
 author: Junghoon Ban

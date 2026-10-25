@@ -22,3 +22,18 @@ omp-acp-provider = "hermes_omp_acp.provider:register"
 packages = ["hermes_omp_acp"]
 
 [tool.hatch.metadata.hooks.custom]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/hermes_omp_acp",
+    "/tests",
+    "/docs",
+    "/.github",
+    "/__init__.py",
+    "/plugin.yaml",
+    "/pyproject.toml",
+    "/hatch_build.py",
+    "/README.md",
+    "/CONTRIBUTING.md",
+    "/LICENSE",
+]
