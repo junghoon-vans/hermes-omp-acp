@@ -40,6 +40,26 @@ If the error says the agent does not support a configured HTTP or SSE transport,
 
 ## OMP-specific option ignored
 
-A warning such as `ACP cannot represent fields; dropping: instructions.` means the field was omitted, not applied. Review [MCP configuration compatibility](limitations.md#mcp-configuration-compatibility), especially if you rely on `instructions: false`, a server working directory, or explicit auth/OAuth settings. Diagnose OMP connection errors separately from these translation warnings.
+A warning such as `ACP cannot represent fields; dropping: instructions.` means the field was omitted, not applied. It does not by itself prove a connection failed or that an instruction was injected. Review [MCP configuration compatibility](limitations.md#mcp-configuration-compatibility) for field-specific consequences; sending the values as raw keys or `_meta` is not a workaround in the source-reviewed OMP 18.12.6 mapper.
+
+## MCP OAuth works in OMP but not through Hermes
+
+1. Check the OMP executable/version used by the Hermes process, not just your shell. Stored URL-keyed OAuth reuse through ACP requires **OMP 18.12.6 or later**; the package minimum of 15.7.6 covers MCP tool forwarding, not this optional feature.
+2. Confirm the OMP profile and agent/auth storage visible to that process match the one you authorized. A named Hermes profile does not automatically select the same-named OMP profile.
+3. Confirm the forwarded server URL matches the stored credential's URL. Authorize or reauthorize through OMP's normal workflow under that OMP profile, for example with `/mcp reauth <server>` in OMP.
+4. Check whether the server definition includes an `Authorization` header, regardless of case. An explicit header disables URL-keyed OAuth fallback; if it uses `!command`, diagnose that command's result and service environment rather than expecting stored OAuth to replace it.
+5. Review warnings for dropped `auth`/`oauth` fields. Explicit credential IDs, client/callback settings, and legacy config-supplied refresh metadata are not preserved. An expired credential may need reauthorization even when initial reuse worked.
+
+Do not paste credentials into logs or duplicate them in Hermes configuration. The provider forwards definitions; OMP owns authentication. See [Stored MCP OAuth reuse](limitations.md#stored-mcp-oauth-reuse) for the exact boundaries. A source-reviewed reuse path is not a successful connection or refresh test against your server.
+
+## MCP timeout differs from native OMP
+
+A server's `timeout` field is omitted. To apply one MCP timeout across servers, set `OMP_MCP_TIMEOUT_MS` in the environment that launches Hermes and restart a running gateway. Do not put it in a server's `env` map: that configures the MCP child, not OMP.
+
+The value is in milliseconds; `0` disables OMP's MCP timeout. The provider's overall completion deadline still applies. `OMP_MCP_STARTUP_TIMEOUT_MS` on OMP 18.12.6 is a separate discovery-window setting, not a request timeout. See [Global timeout alternative](limitations.md#global-timeout-alternative).
+
+## MCP instructions differ from native OMP
+
+In the source-reviewed OMP 18.12.6 ACP implementation, MCP server instructions are not wired into the model prompt. Dropping `instructions: false` does not enable them, and setting `instructions: true` does not add them. Tool descriptions and tool results remain separate sources of model context. See [MCP server instructions](limitations.md#mcp-server-instructions); do not diagnose this from the dropped-field warning alone.
 
 See [Configuration](../../README.md#configuration) for the supported environment variables.

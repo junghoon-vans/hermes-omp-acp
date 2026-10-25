@@ -109,7 +109,11 @@ The provider resolves stdio executables to absolute paths, checking a literal se
 
 Configuration is reread for each completion. A missing file supplies no MCP servers; a missing file in a custom directory does not trigger a retry at the default location. Model discovery does not read the MCP file or start MCP servers, so a working model picker does not prove MCP connectivity.
 
-Only this global file is read: project files and other tools' MCP configurations are not discovered. Stdio, HTTP, and SSE definitions can be forwarded; HTTP and SSE require support advertised by the OMP ACP agent. **OMP-only fields such as `instructions: false` cannot be preserved by this translation.** Review [MCP compatibility limits](docs/model-provider/limitations.md#mcp-configuration-compatibility) before reusing settings that depend on those fields. For missing tools or launch failures, see [MCP troubleshooting](docs/model-provider/troubleshooting.md#mcp-tools-missing).
+Only this global file is read: project files and other tools' MCP configurations are not discovered. Stdio, HTTP, and SSE definitions can be forwarded; HTTP and SSE require support advertised by the OMP ACP agent.
+
+**MCP tool forwarding requires OMP 15.7.6; reuse of stored MCP OAuth credentials requires OMP 18.12.6 or later.** The package minimum remains 15.7.6. OAuth reuse also requires a matching OMP profile and server URL, accessible stored credentials, and no explicit `Authorization` header. It does not forward custom `auth`/`oauth` objects or perform a new login.
+
+This is not a full-fidelity export of OMP settings: server-specific timeouts, working directories, and other OMP-only fields are omitted with warnings. In the source-reviewed OMP 18.12.6 ACP path, server-provided instructions are not wired into the model prompt at all; omitting `instructions: false` does **not** imply they are enabled. See [MCP compatibility limits](docs/model-provider/limitations.md#mcp-configuration-compatibility) for the field/version matrix, OAuth conditions, and global timeout alternative. For missing tools or authentication failures, see [MCP troubleshooting](docs/model-provider/troubleshooting.md#mcp-tools-missing).
 
 ## Official delegation model routes
 

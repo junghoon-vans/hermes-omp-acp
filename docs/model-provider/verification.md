@@ -29,8 +29,21 @@ The minimum versions are listed in [Requirements](../../README.md#requirements).
 - Hermes 0.21.4 adds generic external-process provider selection and setup. Earlier direct-provider runtime support alone does not cover the model picker. Its release tag is [`v2026.9.21`](https://github.com/NousResearch/hermes-agent/releases/tag/v2026.9.21).
 - OMP 15.7.6 fixes activation of client-provided MCP tools in ACP sessions ([upstream PR #1598](https://github.com/can1357/oh-my-pi/pull/1598)). Earlier versions can register those tools without making them available to the model. The `omp acp` subcommand itself was introduced in OMP 15.0.0, but that is not sufficient for MCP support.
 - Hermes 0.21.4 declares Python `>=3.11,<3.14`; Hermes 0.22.x uses Python 3.14.
+- Stored URL-keyed MCP OAuth reuse through ACP is an optional feature requiring OMP 18.12.6 or later. It is not guaranteed by the package's 15.7.6 minimum and is not covered by the automated native stdio scenarios.
 
 CI runs both test suites against the minimum combination, including real stdio MCP tool execution and disabled-server precedence. See [Contributing](../../CONTRIBUTING.md#native-omp-integration) for the integration command and executable override.
+
+## Source-reviewed MCP behavior
+
+The following findings come from upstream source and release-tag comparison, not live server/authentication checks:
+
+- **Forwarded fields and extensions:** OMP 18.12.6's [ACP mapper](https://github.com/can1357/oh-my-pi/blob/v18.12.6/packages/coding-agent/src/modes/acp/acp-agent.ts#L3135-L3165) reconstructs configs from standard transport fields. Server-specific `cwd`, `timeout`, `instructions`, `requestIdFormat`, `auth`, `oauth`, and `_meta` are not copied.
+- **OAuth release boundary:** [Commit `d022a0d`](https://github.com/can1357/oh-my-pi/commit/d022a0d37ac8ccfcc8ae7ca90acccedbf3c09eca) connects the ACP manager to auth storage. The connection is absent in tags 18.12.0–18.12.5 and present in [18.12.6](https://github.com/can1357/oh-my-pi/blob/v18.12.6/packages/coding-agent/src/modes/acp/acp-agent.ts#L3071-L3076). The minimum 15.7.6 ACP manager also lacks it.
+- **OAuth conditions:** OMP 18.12.6's [credential lookup](https://github.com/can1357/oh-my-pi/blob/v18.12.6/packages/coding-agent/src/mcp/oauth-credentials.ts#L24-L79) uses profile/URL-keyed storage and disables URL fallback for an explicit Authorization header. Credential accessibility and refresh material still matter.
+- **Timeout alternative:** the process-wide resolver exists in both [15.7.6](https://github.com/can1357/oh-my-pi/blob/v15.7.6/packages/coding-agent/src/mcp/timeout.ts#L1-L18) and [18.12.6](https://github.com/can1357/oh-my-pi/blob/v18.12.6/packages/coding-agent/src/mcp/timeout.ts#L1-L33). The latter also provides a separate startup-window setting.
+- **Instructions path:** the [ACP session factory](https://github.com/can1357/oh-my-pi/blob/v18.12.6/packages/coding-agent/src/main.ts#L536-L582) disables the SDK MCP manager; the [prompt instructions provider](https://github.com/can1357/oh-my-pi/blob/v18.12.6/packages/coding-agent/src/sdk.ts#L4855-L4870) therefore has no manager. ACP refreshes tools from a separate manager, but [tool refresh](https://github.com/can1357/oh-my-pi/blob/v18.12.6/packages/coding-agent/src/session/session-tools.ts#L2372-L2385) does not install its instructions provider. Server instructions from that ACP manager are not connected to the model prompt.
+
+The targeted field-mapping, auth-storage, and instructions paths were also checked against upstream `main` during the review. That is not a promise about future upstream changes. The review did not verify live OAuth login/renewal, HTTP/SSE connections, or model-prompt capture at runtime. Keep those claims separate from the automated tests above and follow the [MCP compatibility limits](limitations.md#mcp-configuration-compatibility) when validating a configured server.
 
 ## Additional checks
 
