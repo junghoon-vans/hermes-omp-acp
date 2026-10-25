@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing model-provider/vX.Y.Z or delegator/vX.Y.Z tag to publish to TestPyPI
+        description: Existing model-provider/vX.Y.Z (optional aN/bN/rcN) tag to publish to TestPyPI
         required: true
         type: string
 
@@ -21,7 +21,6 @@ jobs:
   prepare:
     runs-on: ubuntu-latest
     outputs:
-      package: ${{ steps.release.outputs.package }}
       sha: ${{ steps.release.outputs.sha }}
       environment: ${{ steps.release.outputs.environment }}
     steps:
@@ -55,7 +54,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: ${{ needs.prepare.outputs.package }}-distributions
+          name: provider-distributions
           path: dist
       - name: Publish to TestPyPI
         if: needs.prepare.outputs.environment == 'testpypi'

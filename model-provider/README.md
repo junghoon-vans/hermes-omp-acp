@@ -106,7 +106,7 @@ Replace `model` with an OMP model ID available to your account. Start a new Herm
 
 **Do not copy `base_url: acp://omp` from the main-model example into a delegation route.** Hermes's delegation resolver treats an explicit `base_url` as a custom endpoint; use `provider: omp-acp` and let the provider resolve its executable and arguments.
 
-This routes Hermes subagents to OMP models; it does not replace the delegator's retained OMP sessions, worktrees, or `omp_status`. Each provider completion still starts a new ACP session. Route-level `reasoning_effort` and `service_tier` are not mapped to OMP settings by this provider.
+This routes Hermes subagents to OMP models. The provider does not manage retained OMP sessions or worktrees; each completion starts a new ACP session. Route-level `reasoning_effort` and `service_tier` are not mapped to OMP settings by this provider.
 
 
 ## Documentation
