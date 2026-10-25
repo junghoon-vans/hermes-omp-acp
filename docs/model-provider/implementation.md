@@ -2,15 +2,23 @@
 
 - The `omp-acp-provider` plugin registers the `omp-acp` model provider through Hermes's external-process model-provider interface.
 - Launches `omp acp` and discovers its available models through ACP.
-- Reuses Hermes's `CopilotACPClient` for transport, message conversion, and tool-call bridging.
-- Adapts the synchronous client for Hermes's async callers by running requests in a worker thread.
+- Implements `OmpACPClient` independently using the official `agent-client-protocol` Python SDK for subprocess transport and JSON-RPC.
+- Reuses Hermes's generic OpenAI completion/tool-call bridge, subprocess environment handling, filesystem safety checks, secret redaction, and logical workspace resolution. It does not import or subclass the Copilot ACP client.
 
 ## Runtime behavior
 
 Each completion opens a new OMP process and ACP session, sending the conversation history with the request. Responses are buffered before being returned as completion objects or stream chunks.
 
-When a model is explicitly requested, the client selects it in that same session before sending the prompt. It reuses Hermes's model-selection negotiation (`session/set_config_option`, or legacy `session/set_model`) but does not inherit its warning-and-default fallback: unavailable models and selection errors abort the completion. A returned current model is checked against the requested ID; when no current model is returned, the successful selection RPC is the acknowledgement. Omitting the model allows the session default.
+When a model is explicitly requested, the client selects it in that same session before sending the prompt, using `session/set_config_option` or the legacy `session/set_model` method. Unavailable models, selection errors, and returned model mismatches abort the completion instead of falling back to OMP's default. When no current model is returned, the successful selection RPC is the acknowledgement. Omitting the model allows the session default.
 
-Native ACP approval requests use the inherited Hermes handler. See [Known limitations](limitations.md#native-acp-approval-requests) for its behavior and the write-verification boundary.
+Synchronous completions run the SDK on a local event loop; asynchronous completions use the caller's event loop. Model discovery retains Hermes's synchronous interface and uses a worker thread when called from an existing event loop. That worker preserves the caller's context.
 
-The plugin depends on Hermes's internal `CopilotACPClient` API. Upstream compatibility is checked through the scenarios described in [Verification](verification.md).
+Incoming message and reasoning chunks are collected in wire order before the prompt response is returned, independently of the SDK's background callback scheduling. Streaming remains buffered rather than live.
+
+One timeout budget covers initialization, session creation, model selection, and prompting. Requests also monitor child-process exit so a dead peer reports its failure instead of waiting for the response deadline. Child shutdown can take additional time. Each session tracks its own process and response buffers; `close()` stops active requests and their processes.
+
+The client uses an explicit session workspace when supplied, otherwise Hermes's logical working-directory resolver. Model discovery disables filesystem callbacks. Sessions send an empty `mcpServers` list; this implementation does not forward OMP's on-disk MCP configuration.
+
+Native ACP permission requests are cancelled by the plugin's own callback, preserving the previous behavior. See [Known limitations](limitations.md#native-acp-approval-requests) for the permission and filesystem policies.
+
+Compatibility still depends on Hermes's shared provider, bridge, environment, and safety interfaces, plus the SDK version range declared in [package metadata](../../pyproject.toml). It no longer depends on the internal `CopilotACPClient` interface. See [Verification](verification.md) for the exercised combinations and scenarios.
