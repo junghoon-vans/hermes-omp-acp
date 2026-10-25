@@ -13,7 +13,7 @@ import unittest
 from unittest.mock import patch
 
 from agent.auxiliary_client import _to_async_client
-from providers import get_provider_profile
+from providers import get_provider_profile, register_provider
 
 from hermes_omp_acp.provider import register
 
@@ -154,6 +154,30 @@ class ProviderTests(unittest.TestCase):
     def test_missing_executable_does_not_break_the_model_picker(self):
         with patch.dict(os.environ, {"HERMES_OMP_ACP_COMMAND": str(self.home / "missing-omp")}):
             self.assertIsNone(self.profile.fetch_models(timeout=1))
+
+    def test_base_provider_remains_usable_without_delegation_apis(self):
+        with patch("hermes_omp_acp.provider.register_provider", wraps=register_provider) as register_profile:
+            with patch.dict(sys.modules, {
+                "agent.delegation_provider": None,
+                "agent.delegation_registry": None,
+            }):
+                register(scope=str(self.home))
+
+        register_profile.assert_called_once()
+        profile = get_provider_profile("omp-acp")
+        self.assertIn("fixture/model", profile.fetch_models(timeout=5) or [])
+
+    def test_selected_worktree_backend_fails_actionably_without_delegation_apis(self):
+        (self.home / "config.yaml").write_text(
+            '{"delegation": {"backend": "omp-worktree"}}',
+            encoding="utf-8",
+        )
+        with patch.dict(sys.modules, {
+            "agent.delegation_provider": None,
+            "agent.delegation_registry": None,
+        }):
+            with self.assertRaisesRegex(RuntimeError, "requires Hermes delegation APIs"):
+                register(scope=str(self.home))
 
     def test_peer_exit_reports_its_failure_instead_of_waiting_for_a_timeout(self):
         args = shlex.join([str(Path(__file__).with_name("acp_peer.py")), "exit"])
@@ -351,6 +375,14 @@ class ProviderTests(unittest.TestCase):
                 )
         self.assertFalse((self.home / "prompt-executed").exists())
 
+    def test_worktree_backend_refuses_completion_without_repository_metadata(self):
+        (self.home / "config.yaml").write_text('{"delegation": {"backend": "omp-worktree"}}')
+        with closing(self.client()) as client:
+            with self.assertRaises(ValueError):
+                client.chat.completions.create(
+                    model="fixture/model", messages=[{"role": "user", "content": "Do not run unisolated"}],
+                    timeout=1,
+                )
 
     def test_acp_permission_requests_are_cancelled(self):
         args = shlex.join([str(Path(__file__).with_name("acp_peer.py")), "permission"])

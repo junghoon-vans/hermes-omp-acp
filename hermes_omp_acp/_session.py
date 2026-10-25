@@ -157,7 +157,7 @@ def _model_selection_request(
             "value": requested_model,
         }
     available = _legacy_session_model_ids(session)
-    if available and requested_model not in available:
+    if requested_model not in available:
         return None
     return "session/set_model", {"sessionId": session_id, "modelId": requested_model}
 
