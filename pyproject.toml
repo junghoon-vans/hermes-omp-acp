@@ -11,6 +11,7 @@ license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Junghoon Ban" }]
 requires-python = ">=3.11"
+dependencies = ["agent-client-protocol>=0.9.0,<0.10.0"]
 
 [project.urls]
 Repository = "https://github.com/junghoon-vans/hermes-omp-acp"
