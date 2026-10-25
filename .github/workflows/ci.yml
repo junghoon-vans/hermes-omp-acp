@@ -29,8 +29,7 @@ jobs:
           python-version: "3.14"
       - name: Build distributions
         run: |
-          cmp LICENSE model-provider/LICENSE
-          uv build model-provider --out-dir dist
+          uv build --out-dir dist
           uvx --from twine twine check --strict dist/*
       - name: Resolve the latest stable Hermes release
         id: hermes
@@ -63,11 +62,11 @@ jobs:
       - name: Exercise the installed provider through Hermes
         run: |
           export PYTHONPATH="$GITHUB_WORKSPACE/.hermes-upstream"
-          uv run --project .hermes-upstream --no-sync python -P -m unittest discover -s model-provider/tests -v
+          uv run --project .hermes-upstream --no-sync python -P -m unittest discover -s tests -v
       - name: Exercise native OMP model selection and file reading
         run: |
           export PYTHONPATH="$GITHUB_WORKSPACE/.hermes-upstream"
-          uv run --project .hermes-upstream --no-sync python -P -m unittest discover -s model-provider/tests/integration -v
+          uv run --project .hermes-upstream --no-sync python -P -m unittest discover -s tests/integration -v
       - uses: actions/upload-artifact@v4
         with:
           name: provider-distributions

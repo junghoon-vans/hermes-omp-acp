@@ -1,12 +1,12 @@
 # Contributing
 
-Run development commands from the repository root unless a command says otherwise. This repository builds one Python distribution: the model provider in `model-provider/`.
+Run development commands from the repository root. This repository builds one Python distribution from the root package.
 
 ## Package boundary and Python environment
 
-`model-provider/` builds `hermes-omp-acp-provider`, requires Python 3.11 or later, and declares no package dependencies. It runs inside a Hermes environment; its tests need Hermes's `acp` extra, which provides the official `agent-client-protocol` test peer dependency. Use a Python version supported by the Hermes release being checked.
+The root package builds `hermes-omp-acp`, requires Python 3.11 or later, and declares no package dependencies. It runs inside a Hermes environment; its tests need Hermes's `acp` extra, which provides the official `agent-client-protocol` test peer dependency. Use a Python version supported by the Hermes release being checked.
 
-For supported user-facing minimums, see the [provider requirements](model-provider/README.md#requirements).
+For supported user-facing minimums, see the [requirements](README.md#requirements).
 
 ## Provider unit tests
 
@@ -14,9 +14,9 @@ Run provider tests with the Python environment for a supported Hermes checkout, 
 
 ```sh
 uv sync --project "$HERMES_SOURCE" --extra acp --locked --no-install-project
-uv pip install --python "$HERMES_SOURCE/.venv/bin/python" --no-deps -e model-provider
+uv pip install --python "$HERMES_SOURCE/.venv/bin/python" --no-deps -e .
 export PYTHONPATH="$HERMES_SOURCE"
-uv run --project "$HERMES_SOURCE" --no-sync python -P -m unittest discover -s model-provider/tests -v
+uv run --project "$HERMES_SOURCE" --no-sync python -P -m unittest discover -s tests -v
 ```
 
 These deterministic tests exercise provider registration, asynchronous event-loop responsiveness, streaming completion boundaries, and missing-executable handling. They need no model credentials. Use a Hermes release and Python combination supported by that release; provider minimums are Hermes 0.21.4 and OMP 15.0.0, with Python matching Hermes.
@@ -26,46 +26,40 @@ These deterministic tests exercise provider registration, asynchronous event-loo
 With a real OMP installation on `PATH`, run the native integration suite in the same Hermes environment:
 
 ```sh
-uv run --project "$HERMES_SOURCE" --no-sync python -P -m unittest discover -s model-provider/tests/integration -v
+uv run --project "$HERMES_SOURCE" --no-sync python -P -m unittest discover -s tests/integration -v
 ```
 
 Set `OMP_INTEGRATION_COMMAND` to an absolute executable path to test a specific OMP installation. Each scenario uses temporary Hermes and OMP homes, a local OpenAI-compatible model endpoint, and a test file. It exercises provider discovery and model selection, async responses, native file reading, and Hermes CLI output without external credentials. The model response is based on the value returned by OMP's actual file-read tool.
 
 The suite creates isolated homes. Keep any manual Hermes or OMP checks isolated too: point `HERMES_HOME`, `PI_CODING_AGENT_DIR`, and any other profile/data paths at temporary directories, and do not run tests against or modify a production or personal profile.
 
-CI checks the provider wheel with the latest stable Hermes and latest OMP, using Python 3.14, and runs both the unit and native integration suites. The provider compatibility-sensitive minimum combination should also be rechecked locally when relevant code changes. See [model-provider verification](docs/model-provider/verification.md) for the CI scope and minimum-version boundaries.
+CI checks the provider wheel with the latest stable Hermes and latest OMP, using Python 3.14, and runs both the unit and native integration suites. The provider compatibility-sensitive minimum combination should also be rechecked locally when relevant code changes. See [verification](docs/model-provider/verification.md) for the CI scope and minimum-version boundaries.
 
-## Build the distribution and check its license
+## Build the distribution
 
-Install `uv`, then build the provider distribution:
-
-```sh
-uv build model-provider --out-dir dist
-```
-
-Keep the provider's `LICENSE` identical to the root license:
+Install `uv`, then build the distribution from the repository root:
 
 ```sh
-cmp LICENSE model-provider/LICENSE
+uv build --out-dir dist
 ```
 
-CI builds the provider distribution and checks its license copy.
+CI builds the root distribution.
 
 ## Publish the provider distribution
 
-Publish `hermes-omp-acp-provider` from tags named `model-provider/vX.Y.Z`. Tags may use an optional `aN`, `bN`, or `rcN` suffix, and the version must exactly match `model-provider/pyproject.toml`.
+Publish `hermes-omp-acp` from tags named `vX.Y.Z`. Tags may use an optional `aN`, `bN`, or `rcN` suffix, and the version must exactly match root `pyproject.toml`.
 
 ### One-time trusted-publishing setup
 
 An administrator needs access to the GitHub repository settings and accounts on both package indexes:
 
-1. In GitHub, open **Settings → Environments** and create the shared environments named exactly `pypi` and `testpypi`. Publishing uses OIDC, not API-token secrets; `id-token: write` is granted only to the publish job. Configure required maintainer approval for both environments (a solo maintainer must allow self-approval). Under **Deployment branches and tags**, allow tags `model-provider/v*` for `pypi`, and only branch `main` for `testpypi`. Run the manual TestPyPI workflow from `main`; its `tag` input selects the provider commit independently.
+1. In GitHub, open **Settings → Environments** and create the shared environments named exactly `pypi` and `testpypi`. Publishing uses OIDC, not API-token secrets; `id-token: write` is granted only to the publish job. Configure required maintainer approval for both environments (a solo maintainer must allow self-approval). Under **Deployment branches and tags**, allow tags `v*` for `pypi`, and only branch `main` for `testpypi`. Run the manual TestPyPI workflow from `main`; its `tag` input selects the commit independently.
 2. In the account-level **Publishing** settings on each index, add one pending publisher for the provider using this mapping:
 
    | Index | Project name | GitHub environment |
    | --- | --- | --- |
-   | PyPI | `hermes-omp-acp-provider` | `pypi` |
-   | TestPyPI | `hermes-omp-acp-provider` | `testpypi` |
+   | PyPI | `hermes-omp-acp` | `pypi` |
+   | TestPyPI | `hermes-omp-acp` | `testpypi` |
 
    For both entries, set the GitHub owner to `junghoon-vans`, repository to `hermes-omp-acp`, and workflow to `publish.yml` (the file is `.github/workflows/publish.yml`). Set the environment field to the value shown in the table.
 
@@ -73,11 +67,11 @@ Pending publishers do not reserve project names; confirm the project name is ava
 
 ### TestPyPI dry run and installed-package validation
 
-Set the version in `model-provider/pyproject.toml`, commit the release candidate, then create and push its matching tag. Do not create a GitHub Release yet. For example, for version `0.1.0`:
+Set the version in root `pyproject.toml`, commit the release candidate, then create and push its matching tag. Do not create a GitHub Release yet. For example, for version `0.1.0`:
 
 ```sh
-git tag model-provider/v0.1.0
-git push origin model-provider/v0.1.0
+git tag v0.1.0
+git push origin v0.1.0
 ```
 
 In GitHub, open **Actions → `publish.yml` → Run workflow**, enter the existing tag in the `tag` input, and start the run. The workflow runs its reusable CI prerequisite and uploads the tested wheel and sdist artifacts to TestPyPI unchanged. `workflow_dispatch` publishes **only** to TestPyPI; it does not create a GitHub Release or upload to production PyPI. This is a real TestPyPI publication, not a no-side-effect simulation.
@@ -89,10 +83,10 @@ HERMES_PYTHON=/absolute/path/to/hermes/python
 VERSION=0.1.0
 "$HERMES_PYTHON" -m pip install --no-deps \
   --index-url https://test.pypi.org/simple \
-  "hermes-omp-acp-provider==$VERSION"
+  "hermes-omp-acp==$VERSION"
 ```
 
-Run Hermes from that same environment, enable the `omp-acp-provider` plugin, and exercise the quick start in the [provider guide](model-provider/README.md). Check that Hermes discovers the installed entry point and that its documented behavior works; `pip install` alone is not validation.
+Run Hermes from that same environment, enable the `omp-acp-provider` plugin, and exercise the quick start in [the root README](README.md#quick-start). Check that Hermes discovers the installed entry point and that its documented behavior works; `pip install` alone is not validation.
 
 ### Production release
 
@@ -102,7 +96,7 @@ After the TestPyPI install check succeeds, create and publish a GitHub Release f
 
 - A tag/version mismatch or failed CI gate prevents upload. Inspect the workflow logs, fix the provider, and create a correctly versioned tag for the corrected commit. Do not edit or replace the tested artifacts.
 - If a TestPyPI upload has succeeded, use a new version and matching tag for another test upload rather than relying on overwriting it.
-- Production PyPI versions are immutable: an uploaded file cannot be replaced or re-uploaded for that version. If any production artifact was uploaded before a failure, treat that version as consumed; bump the provider version in `model-provider/pyproject.toml` and publish a new matching tag and GitHub Release.
+- Production PyPI versions are immutable: an uploaded file cannot be replaced or re-uploaded for that version. If any production artifact was uploaded before a failure, treat that version as consumed; bump the version in root `pyproject.toml` and publish a new matching tag and GitHub Release.
 
 ## Runtime changes and pull requests
 

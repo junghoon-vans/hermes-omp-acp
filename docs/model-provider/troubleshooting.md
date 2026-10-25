@@ -12,4 +12,4 @@ Confirm the plugin is installed under the active profile's `HERMES_HOME`. For a 
 
 Confirm OMP authentication works and the selected model is available to that account.
 
-See [Configuration](../../model-provider/README.md#configuration) for the supported environment variables.
+See [Configuration](../../README.md#configuration) for the supported environment variables.

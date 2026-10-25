@@ -1,4 +1,4 @@
-"""Validate a model-provider release before running compatibility jobs."""
+"""Validate a release before running compatibility jobs."""
 
 import os
 from pathlib import Path
@@ -9,17 +9,16 @@ import tomllib
 
 def prepare(tag: str, root: Path) -> None:
     match = re.fullmatch(
-        r"model-provider/v([0-9]+\.[0-9]+\.[0-9]+(?:(?:a|b|rc)[0-9]+)?)",
+        r"v([0-9]+\.[0-9]+\.[0-9]+(?:(?:a|b|rc)[0-9]+)?)",
         tag,
     )
     if match is None:
-        raise ValueError("Expected model-provider/vX.Y.Z (optional aN/bN/rcN)")
+        raise ValueError("Expected vX.Y.Z (optional aN/bN/rcN)")
     version = match.group(1)
-    directory = root / "model-provider"
-    with (directory / "pyproject.toml").open("rb") as metadata:
+    with (root / "pyproject.toml").open("rb") as metadata:
         project = tomllib.load(metadata)["project"]
-    if project["name"] != "hermes-omp-acp-provider" or project["version"] != version:
-        raise ValueError(f"Tag {tag!r} does not match model-provider/pyproject.toml")
+    if project["name"] != "hermes-omp-acp" or project["version"] != version:
+        raise ValueError(f"Tag {tag!r} does not match pyproject.toml")
 
 
 if __name__ == "__main__":
