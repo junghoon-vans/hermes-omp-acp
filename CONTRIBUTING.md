@@ -4,17 +4,17 @@ Run development commands from the repository root. This repository builds one Py
 
 ## Package boundary and Python environment
 
-The root package builds `hermes-omp-acp`, requires Python 3.11 or later, and declares `agent-client-protocol>=0.9.0,<0.10.0` as its transport dependency. It runs inside a Hermes environment and reuses Hermes's shared provider, completion bridge, environment, and safety interfaces, not its Copilot ACP client. Use a Python version supported by the Hermes release being checked.
+The root package builds `hermes-omp-acp`, requires Python 3.11 or later, and declares `agent-client-protocol>=0.10.1,<0.11` as its transport dependency. It runs inside a Hermes environment and reuses Hermes's shared provider, completion bridge, environment, and safety interfaces, not its Copilot ACP client. Use a Python version supported by the Hermes release being checked.
 
 For supported user-facing minimums, see the [requirements](README.md#requirements).
 
 ## Provider unit tests
 
-Run provider tests with the Python environment for a supported Hermes checkout. The commands below install Hermes's `acp` extra, which supplies the SDK used by both the provider and the real ACP test peer; the subsequent `--no-deps` installation therefore has its transport dependency available. From the repository root, set `HERMES_SOURCE` to a Hermes source checkout and use its `uv` environment:
+Run provider tests with the Python environment for a supported Hermes checkout. Hermes's locked `acp` extra can supply an older SDK; install the provider with dependencies afterward to resolve its supported SDK range. From the repository root, set `HERMES_SOURCE` to a Hermes source checkout and use its `uv` environment:
 
 ```sh
 uv sync --project "$HERMES_SOURCE" --extra acp --locked --no-install-project
-uv pip install --python "$HERMES_SOURCE/.venv/bin/python" --no-deps -e .
+uv pip install --python "$HERMES_SOURCE/.venv/bin/python" -e .
 export PYTHONPATH="$HERMES_SOURCE"
 uv run --project "$HERMES_SOURCE" --no-sync python -P -m unittest discover -s tests -v
 ```
@@ -33,7 +33,7 @@ Set `OMP_INTEGRATION_COMMAND` to an absolute executable path to test a specific 
 
 The suite creates isolated homes. Keep any manual Hermes or OMP checks isolated too: point `HERMES_HOME`, `PI_CODING_AGENT_DIR`, and any other profile/data paths at temporary directories, and do not run tests against or modify a production or personal profile.
 
-CI runs both the unit and native integration suites against the provider wheel in two combinations: the latest stable Hermes and latest OMP with Python 3.14, and Hermes 0.21.4 (`v2026.9.21`) with OMP 15.7.6 and Python 3.11. Recheck the minimum combination locally when changing compatibility-sensitive code. See [verification](docs/verification.md) for the CI scope and minimum-version boundaries.
+CI runs both the unit and native integration suites against the provider wheel with the latest stable Hermes and latest OMP on Python 3.14, and Hermes 0.21.4 (`v2026.9.21`) with OMP 15.7.6 on Python 3.11. Each combination checks SDK 0.10.1 and the latest SDK within the declared range. Recheck the minimum combination locally when changing compatibility-sensitive code. See [verification](docs/verification.md) for the CI scope and minimum-version boundaries.
 
 ## Build the distribution
 
@@ -89,7 +89,7 @@ Validate the package from TestPyPI in a disposable Hermes environment/profile. S
 ```sh
 HERMES_PYTHON=/absolute/path/to/hermes/python
 VERSION=0.2.0
-"$HERMES_PYTHON" -m pip install 'agent-client-protocol>=0.9.0,<0.10.0'
+"$HERMES_PYTHON" -m pip install 'agent-client-protocol>=0.10.1,<0.11'
 "$HERMES_PYTHON" -m pip install --no-deps \
   --index-url https://test.pypi.org/simple \
   "hermes-omp-acp==$VERSION"

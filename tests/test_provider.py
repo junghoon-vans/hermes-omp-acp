@@ -210,7 +210,7 @@ class ProviderTests(unittest.TestCase):
             )
         self.assertEqual(response.choices[0].message.content, "first second")
 
-    def test_stream_limit_configuration_and_environment_control_large_notifications(self):
+    def test_explicit_stream_limits_preserve_large_catalogs_and_reject_oversized_frames(self):
         args = shlex.join([str(Path(__file__).with_name("acp_peer.py")), "large-commands"])
         for limit, override, succeeds in (
             (65_536, "", False),
@@ -226,7 +226,7 @@ class ProviderTests(unittest.TestCase):
                 self.configure(stream_limit_bytes=limit)
                 with closing(self.client()) as client:
                     if not succeeds:
-                        with self.assertRaisesRegex(RuntimeError, "chunk is longer than limit"):
+                        with self.assertRaises(RuntimeError):
                             client.chat.completions.create(
                                 model="fixture/model", messages=[{"role": "user", "content": "Do the task"}],
                                 timeout=5,
