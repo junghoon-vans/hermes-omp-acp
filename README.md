@@ -84,10 +84,17 @@ bounded public-web research through an existing OMP ACP delegation route, with
 primary-source reads, linked findings, and explicit uncertainty.
 
 Install it separately in the Hermes profile that delegates; enabling the
-model-provider plugin does not register skills. See
-[installation and smoke testing](docs/skills/omp-web-research.md) for the native
-`hermes skills install` command and local-checkout alternatives. The skill does
-not enforce a web-only sandbox or change approval/provider defaults.
+model-provider plugin does not register skills:
+
+```sh
+hermes -p research skills install junghoon-vans/hermes-omp-acp/skills/omp-web-research
+hermes -p research chat -s omp-web-research
+```
+
+Replace `research` with your profile name; an OMP ACP delegation route must already
+be configured there. See [installation and smoke testing](docs/skills/omp-web-research.md)
+for local-checkout alternatives. The skill does not enforce a web-only sandbox or
+change approval/provider defaults.
 
 ## Documentation
 
