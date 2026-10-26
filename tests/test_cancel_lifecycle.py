@@ -129,6 +129,24 @@ class CancellationLifecycleTests(unittest.TestCase):
             client.close()
             executor.shutdown(wait=True, cancel_futures=True)
 
+    def test_model_selection_cancel_and_close_preserve_interruption(self):
+        for operation in ("cancel", "close"):
+            with self.subTest(operation=operation):
+                (self.home / "cancel-peer.model-ready").unlink(missing_ok=True)
+                client = self._client("model-selection")
+                executor = ThreadPoolExecutor(max_workers=1)
+                future = self._start_completion(client, executor)
+                try:
+                    self._wait_for_marker("cancel-peer.model-ready")
+                    pid = self._peer_pid()
+                    getattr(client, operation)()
+                    with self.assertRaises(ACPCancelledError):
+                        future.result(timeout=6)
+                    self._assert_reaped(pid)
+                finally:
+                    client.close()
+                    executor.shutdown(wait=True, cancel_futures=True)
+
     def test_request_timeout_notifies_the_remote_prompt(self):
         client = self._client()
         try:
