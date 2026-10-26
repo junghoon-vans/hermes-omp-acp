@@ -8,6 +8,7 @@ import unittest
 from contextlib import closing
 from unittest.mock import patch
 
+from agent.error_classifier import classify_api_error
 from providers import get_provider_profile
 
 from hermes_omp_acp.provider import register
@@ -65,12 +66,15 @@ class ProtocolNegotiationTests(unittest.TestCase):
                 (self.home / "session-created").unlink(missing_ok=True)
                 (self.home / "prompt-executed").unlink(missing_ok=True)
                 with closing(self.client(mode)) as client:
-                    with self.assertRaises((RuntimeError, ValueError)):
+                    with self.assertRaises((RuntimeError, ValueError)) as error:
                         client.chat.completions.create(
                             model="fixture/model",
                             messages=[{"role": "user", "content": "Must not execute"}],
                             timeout=5,
                         )
+                verdict = classify_api_error(error.exception, provider="omp-acp", model="fixture/model")
+                self.assertFalse(verdict.retryable)
+                self.assertFalse(verdict.should_fallback)
                 self.assertFalse((self.home / "session-created").exists())
                 self.assertFalse((self.home / "prompt-executed").exists())
                 self.assert_peer_reaped()
