@@ -29,6 +29,10 @@ The plugin's ACP filesystem callbacks also enforce these checks:
 
 These checks describe the ACP filesystem callbacks, not every possible OMP tool execution path. The [session implementation](../hermes_omp_acp/_session.py) applies Hermes's shared safety and redaction helpers.
 
+## Concurrent OMP startup
+
+OMP 15.7.6 can fail with `SQLiteError: database is locked` when two processes first initialize the same new OMP auth store. Its schema setup selects WAL mode before installing SQLite's busy timeout. Initialize the intended OMP profile with one successful model-discovery or task call before launching concurrent tasks. The plugin reports the native startup failure and retains the task worktree; it does not retry requests or serialize unrelated tasks. Native concurrency verification uses an initialized disposable OMP profile.
+
 ## MCP configuration compatibility
 
 When forwarding is enabled (the default), the provider reads only the global OMP `mcp.json`. It does not reproduce OMP's project-file, plugin, or third-party configuration discovery. Set the plugin's `mcp_enabled: false` or override it with `HERMES_OMP_ACP_MCP_ENABLED=false` to skip file loading and send an empty `mcpServers` list without changing OMP's configuration. This controls this provider's MCP forwarding, not native OMP tools or Hermes-managed tools. See [MCP servers](configuration.md#mcp-servers) for toggle precedence, path selection, and missing-file behavior.

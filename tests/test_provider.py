@@ -1,6 +1,6 @@
 import asyncio
 from concurrent.futures import ThreadPoolExecutor, wait
-from contextlib import closing
+from contextlib import asynccontextmanager, closing
 import json
 import os
 from pathlib import Path
@@ -8,6 +8,7 @@ import shlex
 import shutil
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from unittest.mock import patch
@@ -155,17 +156,7 @@ class ProviderTests(unittest.TestCase):
         with patch.dict(os.environ, {"HERMES_OMP_ACP_COMMAND": str(self.home / "missing-omp")}):
             self.assertIsNone(self.profile.fetch_models(timeout=1))
 
-    def test_base_provider_remains_usable_without_delegation_apis(self):
-        with patch.dict(sys.modules, {
-            "agent.delegation_provider": None,
-            "agent.delegation_registry": None,
-        }):
-            register(scope=str(self.home))
-
-        profile = get_provider_profile("omp-acp")
-        self.assertIn("fixture/model", profile.fetch_models(timeout=5) or [])
-
-    def test_selected_worktree_backend_fails_actionably_without_delegation_apis(self):
+    def test_provider_registration_does_not_depend_on_delegation_apis(self):
         (self.home / "config.yaml").write_text(
             '{"delegation": {"backend": "omp-worktree"}}',
             encoding="utf-8",
@@ -174,8 +165,10 @@ class ProviderTests(unittest.TestCase):
             "agent.delegation_provider": None,
             "agent.delegation_registry": None,
         }):
-            with self.assertRaisesRegex(RuntimeError, "requires Hermes delegation APIs"):
-                register(scope=str(self.home))
+            register()
+
+        profile = get_provider_profile("omp-acp")
+        self.assertIn("fixture/model", profile.fetch_models(timeout=5) or [])
 
     def test_peer_exit_reports_its_failure_instead_of_waiting_for_a_timeout(self):
         args = shlex.join([str(Path(__file__).with_name("acp_peer.py")), "exit"])
@@ -373,14 +366,20 @@ class ProviderTests(unittest.TestCase):
                 )
         self.assertFalse((self.home / "prompt-executed").exists())
 
-    def test_worktree_backend_refuses_completion_without_repository_metadata(self):
+    def test_completion_ignores_delegation_configuration_and_extra_body(self):
         (self.home / "config.yaml").write_text('{"delegation": {"backend": "omp-worktree"}}')
         with closing(self.client()) as client:
-            with self.assertRaises(ValueError):
-                client.chat.completions.create(
-                    model="fixture/model", messages=[{"role": "user", "content": "Do not run unisolated"}],
-                    timeout=1,
-                )
+            response = client.chat.completions.create(
+                model="fixture/model",
+                messages=[{"role": "user", "content": "Run as an ordinary provider request"}],
+                timeout=5,
+                extra_body={"hermes_omp_acp": {
+                    "repository": str(self.home / "not-a-git-repository"),
+                    "task_id": "not-a-task-id",
+                }},
+            )
+        self.assertEqual(response.choices[0].message.content, "first second")
+        self.assertTrue((self.home / "prompt-executed").exists())
 
     def test_acp_permission_requests_are_cancelled(self):
         args = shlex.join([str(Path(__file__).with_name("acp_peer.py")), "permission"])
@@ -585,6 +584,49 @@ class ProviderTests(unittest.TestCase):
                             pass
 
         asyncio.run(exercise())
+
+    def test_cancellation_racing_with_spawn_does_not_start_a_peer(self):
+        from hermes_omp_acp import _session
+
+        entered = threading.Event()
+        resume = threading.Event()
+        spawned = []
+        original_spawn = _session.spawn_agent_process
+
+        @asynccontextmanager
+        async def paused_spawn(*args, **kwargs):
+            entered.set()
+            while not resume.is_set():
+                await asyncio.sleep(0.01)
+            async with original_spawn(*args, **kwargs) as pair:
+                spawned.append(pair[1])
+                yield pair
+
+        async def exercise():
+            with closing(self.client()) as client:
+                task = asyncio.create_task(client.chat.completions.create(
+                    model="fixture/model",
+                    messages=[{"role": "user", "content": "Cancel before ACP startup"}],
+                    timeout=5,
+                ))
+                try:
+                    self.assertTrue(
+                        await asyncio.to_thread(entered.wait, 5),
+                        "request never reached ACP spawn",
+                    )
+                    task.cancel()
+                    with self.assertRaises(asyncio.CancelledError):
+                        await asyncio.wait_for(task, timeout=5)
+                finally:
+                    if not task.done():
+                        task.cancel()
+                    resume.set()
+                    await asyncio.gather(task, return_exceptions=True)
+
+        with patch.object(_session, "spawn_agent_process", paused_spawn):
+            asyncio.run(exercise())
+        self.assertEqual(spawned, [], "A peer process was spawned after cancellation won the startup race")
+        self.assertFalse((self.home / "prompt-executed").exists())
 
     def test_close_reaps_two_active_session_processes(self):
         args = shlex.join([str(Path(__file__).with_name("acp_peer.py")), "lifecycle"])

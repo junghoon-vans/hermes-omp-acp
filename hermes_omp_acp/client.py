@@ -1,4 +1,4 @@
-"""OpenAI-compatible ACP completions with request-owned retained workspaces."""
+"""OpenAI-compatible ACP completions with request-owned runtimes."""
 
 from __future__ import annotations
 
@@ -11,7 +11,6 @@ from typing import Any
 
 from ._bridge import build_completion, completion_to_stream_chunks, format_messages_as_prompt
 from ._session import ACPRuntime
-from .workspaces import WorkspaceStore
 
 _DEFAULT_TIMEOUT_SECONDS = 900.0
 
@@ -72,7 +71,7 @@ class _Request:
 
 
 class OmpACPClient:
-    """Run each completion in an owned ACP runtime and optional Git workspace."""
+    """Run each completion in an owned ACP runtime."""
 
     HERMES_SKIP_TRANSPORT_WRAP = True
     HERMES_SKIP_ASYNC_WRAP = True
@@ -102,15 +101,15 @@ class OmpACPClient:
             args=args,
             mcp_enabled=mcp_enabled,
         )
-        self._workspace_lock = threading.Lock()
+        self._request_lock = threading.Lock()
         self._requests = set()
-        self._workspace_closed = False
+        self._client_closed = False
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create_chat_completion))
 
     @property
     def is_closed(self) -> bool:
-        with self._workspace_lock:
-            return not self._requests and (self._workspace_closed or self._runtime.is_closed)
+        with self._request_lock:
+            return not self._requests and (self._client_closed or self._runtime.is_closed)
 
     def list_models(self, *, timeout_seconds: float = 15.0) -> list[str]:
         try:
@@ -123,65 +122,41 @@ class OmpACPClient:
             ).result()
 
     def close(self) -> None:
-        with self._workspace_lock:
-            self._workspace_closed = True
+        with self._request_lock:
+            self._client_closed = True
             requests = tuple(self._requests)
         for request in requests:
             request.close()
         self._runtime.close()
 
     def _complete(self, *, _request, **kwargs):
-        from hermes_cli.config import load_config_readonly
-        from plugins.plugin_storage import plugin_data_dir
-
         _request.check()
-        delegation = (load_config_readonly() or {}).get("delegation") or {}
-        extra_body = kwargs.get("extra_body") or {}
-        if not isinstance(extra_body, dict):
-            raise ValueError("OMP extra_body must be an object.")
-        metadata = extra_body.get("hermes_omp_acp")
-        if metadata is None and delegation.get("backend") == "omp-worktree":
-            raise ValueError("OMP worktree requests require a structured repository and task identity.")
-
-        def complete(cwd):
-            runtime = ACPRuntime(
-                acp_command=self._runtime._acp_command,
-                acp_args=self._runtime._acp_args,
-                acp_cwd=cwd,
-                mcp_enabled=self._runtime._mcp_enabled,
-            )
-            model = kwargs.get("model")
-            prompt = format_messages_as_prompt(
-                kwargs.get("messages") or [], tools=kwargs.get("tools"), tool_choice=kwargs.get("tool_choice"),
-            )
-
-            async def run():
-                _request.bind(runtime)
-                return await runtime.run(prompt, model, _effective_timeout(kwargs.get("timeout")))
-
-            try:
-                text, reasoning = asyncio.run(run())
-            finally:
-                runtime.close()
-            completion = build_completion(text, reasoning, model)
-            return completion_to_stream_chunks(completion) if kwargs.get("stream") else completion
-
-        if metadata is None:
-            return complete(self._runtime._acp_cwd)
-        policy = (delegation.get("backends") or {}).get("omp-worktree") or {}
-        _request.check()
-        store = WorkspaceStore(
-            plugin_data_dir("omp-acp-provider") / "workspaces", policy.get("allowed_roots"),
+        runtime = ACPRuntime(
+            acp_command=self._runtime._acp_command,
+            acp_args=self._runtime._acp_args,
+            acp_cwd=self._runtime._acp_cwd,
+            mcp_enabled=self._runtime._mcp_enabled,
         )
-        _request.check()
-        with store.acquire(metadata) as workspace:
-            _request.check()
-            return complete(str(workspace.path))
+        model = kwargs.get("model")
+        prompt = format_messages_as_prompt(
+            kwargs.get("messages") or [], tools=kwargs.get("tools"), tool_choice=kwargs.get("tool_choice"),
+        )
+
+        async def run():
+            _request.bind(runtime)
+            return await runtime.run(prompt, model, _effective_timeout(kwargs.get("timeout")))
+
+        try:
+            text, reasoning = asyncio.run(run())
+        finally:
+            runtime.close()
+        completion = build_completion(text, reasoning, model)
+        return completion_to_stream_chunks(completion) if kwargs.get("stream") else completion
 
     def _new_request(self):
         request = _Request()
-        with self._workspace_lock:
-            if self._workspace_closed:
+        with self._request_lock:
+            if self._client_closed:
                 raise RuntimeError("The OMP client was closed; no request was started.")
             self._requests.add(request)
         return request
@@ -191,7 +166,7 @@ class OmpACPClient:
             return self._complete(_request=request, **kwargs)
         finally:
             request.close()
-            with self._workspace_lock:
+            with self._request_lock:
                 self._requests.discard(request)
 
     def _create_chat_completion(self, **kwargs):
@@ -213,8 +188,7 @@ class OmpACPClient:
         try:
             result, error = await asyncio.shield(worker)
         except asyncio.CancelledError:
-            # Workspace locks cannot be released until the process is reaped and
-            # the synchronous acquisition worker exits, even after repeat cancel().
+            # Keep the request until its subprocess is reaped and its worker exits, including repeated cancellation.
             request.cancel()
             cancellation = asyncio.create_task(asyncio.to_thread(request.close))
             for pending in (cancellation, worker):

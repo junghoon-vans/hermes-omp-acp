@@ -66,11 +66,6 @@ jobs:
         run: uv sync --project .hermes-upstream --extra acp --locked --no-install-project
       - name: Install the provider wheel
         run: uv pip install --python .hermes-upstream/.venv/bin/python --no-deps dist/*.whl
-      - uses: actions/checkout@v7.0.1
-        with:
-          repository: NousResearch/hermes-official-plugins
-          ref: e404b6816b20237a82f6fbe2749b5a576cf75dba
-          path: .official-plugins
       - uses: oven-sh/setup-bun@v2.2.0
         with:
           bun-version: latest
@@ -90,10 +85,9 @@ jobs:
         run: |
           export PYTHONPATH="$GITHUB_WORKSPACE/.hermes-upstream"
           uv run --project .hermes-upstream --no-sync python -P -m unittest discover -s tests -v
-      - name: Exercise native OMP model selection and file reading
+      - name: Exercise native OMP provider and independent task
         run: |
           export PYTHONPATH="$GITHUB_WORKSPACE/.hermes-upstream"
-          export HERMES_ADVANCED_DELEGATION_SOURCE="$GITHUB_WORKSPACE/.official-plugins/advanced-delegation"
           uv run --project .hermes-upstream --no-sync python -P -m unittest discover -s tests/integration -v
       - uses: actions/upload-artifact@v4
         if: matrix.hermes == 'latest'

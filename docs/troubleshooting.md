@@ -10,6 +10,10 @@ Confirm the plugin is installed under the active profile's `HERMES_HOME`. For a 
 
 If loading the plugin reports a missing `acp` module, install the provider with dependencies in that same Python environment: `python -m pip install hermes-omp-acp`. The standalone transport requires `agent-client-protocol>=0.9.0,<0.10.0`; installing with `--no-deps` assumes that dependency is already present.
 
+## `omp_task` is unavailable
+
+The tool requires the `hermes-omp-acp` distribution installed in the Python environment that runs Hermes and the separate `omp-task` plugin enabled in the active profile. The GitHub directory-plugin installation contains the model-provider manifest only. Configure required `model_id` and `allowed_roots` values under `plugins.entries.omp-task.settings`; see [OMP task tool settings](configuration.md#omp-task-tool). The tool is discovered through Hermes's general plugin loader and does not require Advanced Delegation or `model_map`.
+
 ## Model discovery or inference fails
 
 Confirm OMP authentication works and the selected model is available to that account.

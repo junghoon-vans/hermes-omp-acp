@@ -37,6 +37,43 @@ For each option, precedence is **non-empty environment variable → plugin setti
 
 Variables must be available to the Hermes process, including a gateway launched as a service. Restart a running gateway after changing its environment. The MCP environment override is checked for each completion, against the plugin setting captured at registration.
 
+## OMP task tool
+
+After installing `hermes-omp-acp` in Hermes's Python environment—through PyPI or the standalone `plugins/omp-task` directory wrapper—enable `omp-task` independently with `hermes plugins enable omp-task`. It is a general Hermes plugin in the same Python distribution as the provider; these settings are read from `plugins.entries.omp-task.settings`:
+
+```yaml
+plugins:
+  enabled:
+    - omp-task
+  entries:
+    omp-task:
+      settings:
+        model_id: openai-codex/gpt-6.1-sol
+        allowed_roots:
+          - /path/to/allowed/repositories
+        command: omp
+        args: [acp]
+        mcp_enabled: true
+        timeout_seconds: 900
+```
+
+Replace `model_id` with a model ID available to OMP and `allowed_roots` with one or more absolute directory paths containing Git repositories you explicitly permit. The requested `repository` argument must be an existing Git repository root under one of these paths. Use `model_id`: Hermes reserves `model` in its plugin-settings API.
+
+| Setting | Default | Purpose |
+| --- | --- | --- |
+| `model_id` | required | OMP model ID selected for each task. |
+| `allowed_roots` | required | Non-empty list of absolute directory paths that bound eligible repository roots. |
+| `command` | `omp` | Executable name on Hermes's `PATH`, or an absolute executable path. |
+| `args` | `[acp]` | Complete ACP launch argument list as a YAML list of strings. |
+| `mcp_enabled` | `true` | Forward MCP definitions to the task's ACP session. Use a YAML boolean. |
+| `timeout_seconds` | `900` | Positive finite timeout for one task invocation, in seconds. |
+
+The shared `HERMES_OMP_ACP_MCP_ENABLED` environment override also takes precedence over this tool's `mcp_enabled` setting. Task `command`, `args`, and `model_id` come from trusted tool configuration, not caller arguments or provider launch overrides.
+
+`task_id` is optional; when omitted, the tool generates a new ID and workspace. Reuse the same 32-character lowercase hexadecimal ID with the same repository to reuse the retained Git worktree and files. Every invocation still creates a fresh OMP process and ACP session, so prior ACP conversation history is not retained.
+
+Once created, a task worktree is retained after successful, failed, or stopped OMP invocations. Stop closes and reaps only that invocation's OMP process, then waits for its worker to release the workspace lock; it does not delete the worktree. Stop does not interrupt a Git command already setting up the worktree: the handler waits for setup to finish, prevents ACP launch, and drains its worker before returning. A later invocation using the same task ID can continue from its files, while other task IDs use independent worktrees.
+
 ## MCP servers
 
 Keep MCP server definitions in OMP's configuration, not in a second Hermes `mcp_servers` list. Forwarding is **enabled by default**: for each completion, the provider reads the OMP file and supplies the active server definitions to `session/new.mcpServers`. OMP connects to the servers and executes their tools.
@@ -95,32 +132,3 @@ Only this global file is read: project files and other tools' MCP configurations
 
 This is not a full-fidelity export of OMP settings: server-specific timeouts, working directories, and other OMP-only fields are omitted with warnings. In the source-reviewed OMP 18.12.6 ACP path, server-provided instructions are not wired into the model prompt; omitting `instructions: false` does **not** imply they are enabled. See [MCP compatibility limits](limitations.md#mcp-configuration-compatibility) for the field/version matrix, OAuth conditions, and global timeout alternative. For missing tools or authentication failures, see [MCP troubleshooting](troubleshooting.md#mcp-tools-missing).
 
-## Official delegation model routes
-
-To choose an OMP model per subagent task, use the official [Advanced Delegation plugin](https://github.com/NousResearch/hermes-official-plugins/tree/main/advanced-delegation), which requires **Hermes 0.22.5 or later**. Install and enable both plugins in the profile that delegates:
-
-```sh
-hermes plugins install advanced-delegation
-hermes plugins enable advanced-delegation
-```
-
-The `omp-acp-provider` installation and activation steps in the [quick start](../README.md#quick-start) are also required. Merge this separate delegation configuration into that profile's `config.yaml`:
-
-```yaml
-delegation:
-  backend: model_map
-  backends:
-    model_map:
-      options:
-        - name: omp-deep
-          description: Complex code analysis and implementation.
-          provider: omp-acp
-          model: openai-codex/gpt-6.1-sol
-      default: omp-deep
-```
-
-Replace `model` with an OMP model ID available to your account. Start a new Hermes session after changing routes.
-
-**Do not copy `base_url: acp://omp` from the main-model example into a delegation route.** Hermes's delegation resolver treats an explicit `base_url` as a custom endpoint; use `provider: omp-acp` and let the provider resolve its executable and arguments.
-
-This routes Hermes subagents to OMP models. The provider does not manage retained OMP sessions or worktrees; each completion starts a new ACP session. Route-level `reasoning_effort` and `service_tier` are not mapped to OMP settings by this provider.
