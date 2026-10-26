@@ -81,6 +81,9 @@ class OmpACPClient:
                 self._runtime.list_models(timeout_seconds),
             ).result()
 
+    def cancel(self) -> None:
+        self._runtime.cancel()
+
     def close(self) -> None:
         self._runtime.close()
 

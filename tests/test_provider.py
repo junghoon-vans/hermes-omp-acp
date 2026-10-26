@@ -16,6 +16,7 @@ from agent.auxiliary_client import _to_async_client
 from providers import get_provider_profile
 
 from hermes_omp_acp.provider import register
+from hermes_omp_acp.errors import ACPCancelledError
 
 
 class ProviderTests(unittest.TestCase):
@@ -629,7 +630,7 @@ class ProviderTests(unittest.TestCase):
 
                 client.close()
                 for future in futures:
-                    with self.assertRaises((asyncio.CancelledError, RuntimeError)):
+                    with self.assertRaises(ACPCancelledError):
                         future.result(timeout=5)
                     self.assertTrue(future.done())
                 self._assert_process_reaped(pids["close_left"])
