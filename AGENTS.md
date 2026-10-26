@@ -88,7 +88,7 @@ not publish packages or create release tags as a side effect of ordinary work.
 - Do not rename an existing PR branch merely to adopt this convention; use it
   for newly created branches.
 
-### Commits and PR titles
+### Commit, PR, and issue titles
 
 - Use Conventional Commits: `<type>[optional scope][!]: <description>`.
 - Allowed types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`,
@@ -101,7 +101,8 @@ not publish packages or create release tags as a side effect of ordinary work.
   and explain the incompatible behavior and required migration in the body.
 - Keep each commit focused on one logical change. Reference related issues in
   the body or footer when applicable.
-- Use the same format for PR titles so squash merges retain a conventional
-  subject. Examples: `docs: add shared agent instructions`,
+- Use the same format, types, optional scope, and description rules for both PR
+  and issue titles. PR titles also serve as conventional squash-merge subjects.
+  Examples: `docs: add shared agent instructions`,
   `fix(client): reject mismatched model selection`, and
   `refactor!: change provider configuration`.
