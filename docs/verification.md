@@ -25,6 +25,14 @@ The standalone client's ACP peer regressions also exercise permission cancellati
 
 Lifecycle regressions use peer readiness gates to establish overlapping sessions before releasing or cancelling them. They verify that timeout or caller cancellation reaps only the affected child while a sibling still completes, and that `close()` stops and reaps all active children. Additional cases cover one timeout budget across initialization/session creation/model selection, and ordered text/reasoning bursts followed immediately by the prompt response. The tests use the public provider/client interface, not private module names or transport mocks.
 
+## Package metadata and release checks
+
+The version and description come from [`plugin.yaml`](../plugin.yaml), not static fields in `pyproject.toml`. See [Build the distribution](../CONTRIBUTING.md#build-the-distribution) for the metadata hook and local build/check commands.
+
+Local packaging checks for release 0.2.0 built an sdist and then a wheel from that sdist. Both artifacts passed `twine check --strict`. A disposable environment installation confirmed that the wheel's version and Summary match the manifest and that PyYAML is not a runtime requirement.
+
+The release preparation script accepted `v0.2.0` and rejected the mismatched tags `v0.1.0` and `v0.2.0rc1`, as well as the malformed tag `0.2.0`. Running it with a temporary GitHub output file also succeeded. These checks did not publish to TestPyPI or PyPI and do not replace installed-package validation in Hermes.
+
 ## Minimum-version boundaries
 
 The minimum versions are listed in [Requirements](../README.md#requirements).
