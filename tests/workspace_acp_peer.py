@@ -25,6 +25,17 @@ OPTIONS = [{
 }]
 
 
+def _json_compatible(value):
+    if isinstance(value, list):
+        return [_json_compatible(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _json_compatible(item) for key, item in value.items()}
+    model_dump = getattr(value, "model_dump", None)
+    if callable(model_dump):
+        return _json_compatible(model_dump(mode="json", by_alias=True))
+    return value
+
+
 class WorkspacePeer(Agent):
     def on_connect(self, client):
         self.client = client
@@ -41,7 +52,14 @@ class WorkspacePeer(Agent):
 
     async def new_session(self, cwd, mcp_servers, **kwargs):
         self.cwd = Path(cwd)
-        self.record("session/new", requested_cwd=str(self.cwd), actual_cwd=os.getcwd())
+        self.record(
+            "session/new",
+            requested_cwd=str(self.cwd),
+            actual_cwd=os.getcwd(),
+            command=sys.executable,
+            argv=sys.argv,
+            mcp_servers=_json_compatible(mcp_servers),
+        )
         if self.mode == "no-model-exposure":
             return NewSessionResponse.model_validate({
                 "sessionId": "workspace-fixture",

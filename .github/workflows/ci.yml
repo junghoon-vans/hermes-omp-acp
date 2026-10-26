@@ -84,6 +84,9 @@ jobs:
           "$RUNNER_TEMP/omp/node_modules/.bin/omp" --version
           echo "OMP_INTEGRATION_COMMAND=$RUNNER_TEMP/omp/node_modules/.bin/omp" >> "$GITHUB_ENV"
       - name: Exercise the installed provider through Hermes
+        env:
+          HERMES_OMP_DIST_DIR: dist
+          HERMES_OMP_CHECK_INSTALLED_ENTRYPOINT: "1"
         run: |
           export PYTHONPATH="$GITHUB_WORKSPACE/.hermes-upstream"
           uv run --project .hermes-upstream --no-sync python -P -m unittest discover -s tests -v

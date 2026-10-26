@@ -35,8 +35,19 @@ class WorkspaceClientTests(unittest.TestCase):
 
         self.home = self.root / "home"
         self.home.mkdir()
-        environment = patch.dict(os.environ, {"HERMES_HOME": str(self.home)})
+        self.agent_dir = self.root / "agent"
+        self.agent_dir.mkdir()
+        environment = patch.dict(os.environ, {
+            "HERMES_HOME": str(self.home),
+            "PI_CODING_AGENT_DIR": str(self.agent_dir),
+        })
         environment.start()
+        for name in (
+            "HERMES_OMP_ACP_COMMAND",
+            "HERMES_OMP_ACP_ARGS",
+            "HERMES_OMP_ACP_MCP_ENABLED",
+        ):
+            os.environ.pop(name, None)
         self.addCleanup(environment.stop)
         (self.home / "config.yaml").write_text(json.dumps({
             "delegation": {
@@ -66,6 +77,37 @@ class WorkspaceClientTests(unittest.TestCase):
             acp_args=[str(PEER), mode, str(self.signal_dir)],
             acp_cwd=str(self.root),
         )
+        self.clients.append(client)
+        return client
+
+    def make_registered_client(self, *, mode, mcp_enabled):
+        from importlib.util import find_spec
+
+        if find_spec("agent.delegation_provider") is None or find_spec("agent.delegation_registry") is None:
+            self.skipTest("This Hermes release lacks the delegation APIs required by omp-worktree registration")
+        from hermes_omp_acp.provider import register
+        from providers import get_provider_profile
+
+        (self.home / "config.yaml").write_text(json.dumps({
+            "delegation": {
+                "backend": "omp-worktree",
+                "backends": {"omp-worktree": {"allowed_roots": [str(self.allowed)]}},
+            },
+            "plugins": {
+                "enabled": ["omp-acp-provider"],
+                "entries": {
+                    "omp-acp-provider": {
+                        "settings": {
+                            "command": sys.executable,
+                            "args": [str(PEER.resolve()), mode, str(self.signal_dir)],
+                            "mcp_enabled": mcp_enabled,
+                        },
+                    },
+                },
+            },
+        }), encoding="utf-8")
+        register()
+        client = get_provider_profile("omp-acp").create_client(acp_cwd=str(self.root))
         self.clients.append(client)
         return client
 
@@ -112,6 +154,24 @@ class WorkspaceClientTests(unittest.TestCase):
 
     def release_prompt(self, record):
         (self.signal_dir / f"continue-{record['pid']}").touch()
+
+    async def complete_workspace_request(self, client, metadata, prompt):
+        task = asyncio.create_task(self.complete(client, metadata, prompt))
+        try:
+            session = await self.wait_for_record(
+                lambda record: record.get("method") == "session/new",
+            )
+            prompt_record = await self.wait_for_prompt(prompt)
+            self.release_prompt(prompt_record)
+            return session, await task
+        finally:
+            if not task.done():
+                task.cancel()
+                for record in self.records():
+                    if record.get("method") == "session/prompt":
+                        self.release_prompt(record)
+                await asyncio.gather(task, return_exceptions=True)
+
 
     @staticmethod
     def process_is_alive(pid):
@@ -162,6 +222,66 @@ class WorkspaceClientTests(unittest.TestCase):
         with self.store.acquire(metadata) as workspace:
             self.assertEqual(workspace.path, workspace_path)
             self.assertTrue(workspace.path.is_dir())
+
+    def test_registered_settings_reach_request_runtime_and_forward_mcp_with_workspace_cwd(self):
+        (self.agent_dir / "mcp.json").write_text(json.dumps({
+            "mcpServers": {
+                "workspace-tools": {
+                    "command": sys.executable,
+                    "args": ["-c", "pass"],
+                    "env": {"WORKSPACE_MCP": "fixture"},
+                },
+            },
+        }), encoding="utf-8")
+        client = self.make_registered_client(mode="registered-settings", mcp_enabled=True)
+        metadata = self.metadata(2)
+        prompt = "registered-workspace-mcp"
+
+        session, response = asyncio.run(self.complete_workspace_request(client, metadata, prompt))
+
+        self.assertIn(prompt, response.choices[0].message.content)
+        self.assertEqual(session["command"], sys.executable)
+        self.assertEqual(session["argv"], [
+            str(PEER.resolve()),
+            "registered-settings",
+            str(self.signal_dir),
+        ])
+        self.assertEqual(len(session["mcp_servers"]), 1)
+        server = session["mcp_servers"][0]
+        self.assertEqual(server["name"], "workspace-tools")
+        self.assertEqual(server["command"], sys.executable)
+        self.assertEqual(server["args"], ["-c", "pass"])
+        self.assertEqual(
+            {entry["name"]: entry["value"] for entry in server["env"]},
+            {"WORKSPACE_MCP": "fixture"},
+        )
+        self.assertEqual(session["actual_cwd"], session["requested_cwd"])
+        workspace_path = Path(session["requested_cwd"])
+        self.assertEqual(self.git(workspace_path, "rev-parse", "--show-toplevel"), str(workspace_path))
+        with self.store.acquire(metadata) as workspace:
+            self.assertEqual(workspace.path, workspace_path)
+
+    def test_registered_disabled_mcp_skips_invalid_config_in_workspace_runtime(self):
+        (self.agent_dir / "mcp.json").write_text('{"mcpServers": broken', encoding="utf-8")
+        client = self.make_registered_client(mode="registered-disabled", mcp_enabled=False)
+        metadata = self.metadata(3)
+        prompt = "registered-disabled-mcp"
+
+        session, response = asyncio.run(self.complete_workspace_request(client, metadata, prompt))
+
+        self.assertIn(prompt, response.choices[0].message.content)
+        self.assertEqual(session["command"], sys.executable)
+        self.assertEqual(session["argv"], [
+            str(PEER.resolve()),
+            "registered-disabled",
+            str(self.signal_dir),
+        ])
+        self.assertEqual(session["mcp_servers"], [])
+        self.assertEqual(session["actual_cwd"], session["requested_cwd"])
+        workspace_path = Path(session["requested_cwd"])
+        with self.store.acquire(metadata) as workspace:
+            self.assertEqual(workspace.path, workspace_path)
+
 
     def test_model_selection_failures_never_reach_prompt(self):
         cases = (

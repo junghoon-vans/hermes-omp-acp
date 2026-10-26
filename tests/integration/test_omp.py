@@ -77,6 +77,8 @@ class NativeOmpTests(unittest.TestCase):
         self.addCleanup(_reset_queued_handlers)
         self.profile = get_provider_profile("omp-acp")
         self.assertIsNotNone(self.profile, "Hermes did not discover the installed provider")
+        # Provider discovery is process-global; each fixture owns fresh launch paths.
+        self.configure()
 
     def configure(self, **settings):
         from hermes_omp_acp.provider import register
@@ -275,7 +277,7 @@ Path(sys.argv[2]).write_text(json.dumps({
         modified = "NATIVE_READ_" + secrets.token_hex(8)
         endpoint = ModelEndpoint(Path("probe.txt"), replacement=modified)
         self.addCleanup(endpoint.close)
-        models_path = self.root / "omp/models.yml"
+        models_path = Path(os.environ["PI_CODING_AGENT_DIR"]) / "models.yml"
         models = json.loads(models_path.read_text())
         models["providers"]["fixture"]["baseUrl"] = endpoint.url
         models_path.write_text(json.dumps(models))
@@ -325,7 +327,7 @@ Path(sys.argv[2]).write_text(json.dumps({
         self.assertEqual((worktree / "probe.txt").read_text(), modified + "\n")
         sessions = [
             json.loads(line)
-            for path in (self.root / "sessions").rglob("*.jsonl")
+            for path in (self.root / "sessions with spaces").rglob("*.jsonl")
             for line in path.read_text().splitlines()
             if line.strip()
         ]
