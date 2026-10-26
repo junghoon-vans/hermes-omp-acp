@@ -36,6 +36,7 @@ from agent.file_safety import (
 from agent.redact import redact_sensitive_text
 from agent.runtime_cwd import resolve_agent_cwd
 
+from .errors import ACPError, ACPTimeoutError
 from .mcp import load_mcp_servers
 
 
@@ -244,9 +245,13 @@ def _validate_mcp_transports(mcp_servers: list[dict], initialize_result: Any) ->
     }
     if unsupported:
         transports = ", ".join(sorted(unsupported))
-        raise RuntimeError(
+        raise ACPError(
             f"OMP ACP agent does not support configured MCP transport(s): {transports}. "
-            "The agent must advertise support during initialize."
+            "The agent must advertise support during initialize.",
+            phase="initialize",
+            method="initialize",
+            prompt_dispatched=False,
+            failure_kind="deterministic",
         )
 
 
@@ -379,18 +384,66 @@ async def _wait_for_stderr(task: asyncio.Task[None] | None, timeout: float = 0.5
 
 
 def _process_exit_error(process: asyncio.subprocess.Process, tail: deque[str]) -> RuntimeError:
-    stderr_text = "\n".join(tail).strip()
+    stderr_text = redact_sensitive_text("\n".join(tail), force=True).strip()
     return RuntimeError(f"OMP ACP process exited early: {stderr_text or f'exit code {process.returncode}'}")
 
 
+def _request_phase(method: str) -> str:
+    if method == "initialize":
+        return "initialize"
+    if method == "session/new":
+        return "session"
+    if method == "session/prompt":
+        return "prompt"
+    if method.startswith("session/set_"):
+        return "model_selection"
+    return "rpc"
+
+
+def _failure_kind(method: str, cause: BaseException, prompt_dispatched: bool | None) -> str:
+    if isinstance(cause, RequestError):
+        return "deterministic"
+    if method == "session/prompt" and prompt_dispatched is not False:
+        return "outcome_unknown"
+    current: BaseException | None = cause
+    while current is not None:
+        if isinstance(current, RequestError) or isinstance(current, FileNotFoundError):
+            return "deterministic"
+        if isinstance(current, (TimeoutError, ConnectionError, OSError)):
+            return "pre_dispatch_transport"
+        current = current.__cause__ or current.__context__
+    return "deterministic"
+
+
+@dataclass
+class _RequestContext:
+    phase: str = "startup"
+    method: str | None = None
+    prompt_dispatched: bool | None = False
+
+
 class _SessionCallbacks:
-    def __init__(self, cwd: str, *, allow_file_requests: bool):
+    def __init__(
+        self,
+        cwd: str,
+        *,
+        allow_file_requests: bool,
+        request_context: _RequestContext,
+    ):
         self.cwd = cwd
         self.allow_file_requests = allow_file_requests
+        self.request_context = request_context
         self.text_parts: list[str] = []
         self.reasoning_parts: list[str] = []
 
     def observe(self, event: StreamEvent) -> None:
+        # ACP's observer runs after the JSON-RPC frame has been drained to stdin.
+        if (
+            event.direction == StreamDirection.OUTGOING
+            and event.message.get("method") == "session/prompt"
+        ):
+            self.request_context.prompt_dispatched = True
+            return
         # The SDK dispatches callbacks in background tasks. Ingest updates on
         # receipt so a prompt response cannot overtake its final text chunks.
         if event.direction != StreamDirection.INCOMING or event.message.get("method") != "session/update":
@@ -470,6 +523,7 @@ class _SessionState:
     process: asyncio.subprocess.Process
     stderr_task: asyncio.Task[None] | None
     stderr_tail: deque[str]
+    request_context: _RequestContext
 
 
 class ACPRuntime:
@@ -544,6 +598,11 @@ class ACPRuntime:
                 self._is_closed = True
 
     async def _request(self, state: _SessionState, method: str, awaitable: Any) -> Any:
+        context = state.request_context
+        context.phase = _request_phase(method)
+        context.method = method
+        if method == "session/prompt":
+            context.prompt_dispatched = None
         response_task = asyncio.ensure_future(awaitable)
         exit_task = asyncio.create_task(state.process.wait())
         try:
@@ -553,10 +612,24 @@ class ACPRuntime:
             await _wait_for_stderr(state.stderr_task)
             raise _process_exit_error(state.process, state.stderr_tail)
         except Exception as exc:
+            rpc_code = getattr(exc, "code", None)
+            if not isinstance(rpc_code, (int, str)) or isinstance(rpc_code, bool):
+                rpc_code = None
             if state.process.returncode is not None:
                 await _wait_for_stderr(state.stderr_task)
-                raise _process_exit_error(state.process, state.stderr_tail) from exc
-            raise RuntimeError(f"OMP ACP {method} failed: {exc}") from exc
+                message = str(_process_exit_error(state.process, state.stderr_tail))
+            else:
+                message = f"OMP ACP {method} failed: {redact_sensitive_text(str(exc), force=True)}"
+            raise ACPError(
+                message,
+                phase=context.phase,
+                method=method,
+                rpc_code=rpc_code,
+                exit_code=state.process.returncode,
+                prompt_dispatched=context.prompt_dispatched,
+                failure_kind=_failure_kind(method, exc, context.prompt_dispatched),
+                cause=exc,
+            ) from exc
         finally:
             for pending in (response_task, exit_task):
                 if not pending.done():
@@ -564,13 +637,33 @@ class ACPRuntime:
             await asyncio.gather(response_task, exit_task, return_exceptions=True)
 
     @asynccontextmanager
-    async def _session(self, *, allow_file_requests: bool = True) -> AsyncGenerator[_SessionState, None]:
-        mcp_servers = load_mcp_servers(enabled=self._mcp_enabled) if allow_file_requests else []
+    async def _session(
+        self,
+        *,
+        allow_file_requests: bool = True,
+        request_context: _RequestContext | None = None,
+    ) -> AsyncGenerator[_SessionState, None]:
+        request_context = request_context or _RequestContext()
+        try:
+            mcp_servers = load_mcp_servers(enabled=self._mcp_enabled) if allow_file_requests else []
+        except Exception as exc:
+            detail = redact_sensitive_text(str(exc), force=True)
+            raise ACPError(
+                f"Invalid OMP ACP configuration: {detail}",
+                phase="configuration",
+                prompt_dispatched=False,
+                failure_kind="deterministic",
+                cause=exc,
+            ) from exc
         task, generation = self._begin_session()
         process: asyncio.subprocess.Process | None = None
         stderr_task: asyncio.Task[None] | None = None
         stderr_tail: deque[str] = deque(maxlen=40)
-        callbacks = _SessionCallbacks(self._acp_cwd, allow_file_requests=allow_file_requests)
+        callbacks = _SessionCallbacks(
+            self._acp_cwd,
+            allow_file_requests=allow_file_requests,
+            request_context=request_context,
+        )
         try:
             try:
                 async with _bounded_spawn_agent_process(
@@ -598,6 +691,7 @@ class ACPRuntime:
                         process=process,
                         stderr_task=stderr_task,
                         stderr_tail=stderr_tail,
+                        request_context=request_context,
                     )
                     initialize_result = await self._request(
                         state,
@@ -622,12 +716,34 @@ class ACPRuntime:
                     )
                     session_data = _as_mapping(session)
                     if not str(session_data.get("sessionId") or "").strip():
-                        raise RuntimeError("OMP ACP did not return a sessionId.")
+                        raise ACPError(
+                            "OMP ACP did not return a sessionId.",
+                            phase="session",
+                            method="session/new",
+                            prompt_dispatched=False,
+                            failure_kind="deterministic",
+                        )
                     state.session = session_data
                     yield state
             except FileNotFoundError as exc:
-                raise RuntimeError(
-                    f"Could not start OMP ACP command '{self._acp_command}'. Install OMP or configure its command."
+                raise ACPError(
+                    "Could not start the configured OMP ACP executable.",
+                    phase="launch",
+                    prompt_dispatched=False,
+                    failure_kind="deterministic",
+                    cause=exc,
+                ) from exc
+            except ACPError:
+                raise
+            except (RuntimeError, ValueError) as exc:
+                detail = redact_sensitive_text(str(exc), force=True)
+                raise ACPError(
+                    f"OMP ACP setup failed: {detail}",
+                    phase=request_context.phase,
+                    method=request_context.method,
+                    prompt_dispatched=request_context.prompt_dispatched,
+                    failure_kind="deterministic",
+                    cause=exc,
                 ) from exc
         finally:
             self._finish_session(task, process)
@@ -638,14 +754,23 @@ class ACPRuntime:
                     await stderr_task
 
     async def run(self, prompt: str, model: str | None, timeout_seconds: float) -> tuple[str, str]:
+        request_context = _RequestContext()
         try:
             async with asyncio.timeout(timeout_seconds):
-                async with self._session() as state:
+                async with self._session(request_context=request_context) as state:
                     requested_model = str(model or "").strip()
                     if requested_model:
+                        request_context.phase = "model_selection"
+                        request_context.method = None
+                        request_context.prompt_dispatched = False
                         selection = _model_selection_request(state.session, requested_model)
                         if selection is None:
-                            raise RuntimeError(f"OMP ACP model {requested_model!r} is not offered by this session.")
+                            raise ACPError(
+                                f"OMP ACP model {requested_model!r} is not offered by this session.",
+                                phase="model_selection",
+                                prompt_dispatched=False,
+                                failure_kind="deterministic",
+                            )
                         method, params = selection
                         try:
                             if method == "session/set_config_option":
@@ -676,8 +801,13 @@ class ACPRuntime:
                         models = _as_mapping(result_data.get("models"))
                         selected_model = option.get("currentValue") if option else models.get("currentModelId")
                         if selected_model is not None and selected_model != requested_model:
-                            raise RuntimeError(
-                                f"OMP ACP selected {selected_model!r} instead of requested model {requested_model!r}."
+                            raise ACPError(
+                                f"OMP ACP selected {selected_model!r} instead of requested model "
+                                f"{requested_model!r}.",
+                                phase="model_selection",
+                                method=method,
+                                prompt_dispatched=False,
+                                failure_kind="deterministic",
                             )
                     await self._request(
                         state,
@@ -689,7 +819,19 @@ class ACPRuntime:
                     )
                     return "".join(state.callbacks.text_parts), "".join(state.callbacks.reasoning_parts)
         except TimeoutError as exc:
-            raise TimeoutError("Timed out waiting for OMP ACP response.") from exc
+            failure_kind = (
+                "outcome_unknown"
+                if request_context.prompt_dispatched is not False
+                else "pre_dispatch_transport"
+            )
+            raise ACPTimeoutError(
+                "Timed out waiting for OMP ACP response.",
+                phase=request_context.phase,
+                method=request_context.method,
+                prompt_dispatched=request_context.prompt_dispatched,
+                failure_kind=failure_kind,
+                cause=exc,
+            ) from exc
 
     async def list_models(self, timeout_seconds: float) -> list[str]:
         try:
