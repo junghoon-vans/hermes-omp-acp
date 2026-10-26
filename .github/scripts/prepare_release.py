@@ -6,6 +6,8 @@ import re
 import subprocess
 import tomllib
 
+import yaml
+
 
 def prepare(tag: str, root: Path) -> None:
     match = re.fullmatch(
@@ -17,8 +19,9 @@ def prepare(tag: str, root: Path) -> None:
     version = match.group(1)
     with (root / "pyproject.toml").open("rb") as metadata:
         project = tomllib.load(metadata)["project"]
-    if project["name"] != "hermes-omp-acp" or project["version"] != version:
-        raise ValueError(f"Tag {tag!r} does not match pyproject.toml")
+    manifest = yaml.safe_load((root / "plugin.yaml").read_text(encoding="utf-8"))
+    if project["name"] != "hermes-omp-acp" or manifest["version"] != version:
+        raise ValueError(f"Tag {tag!r} does not match package identity or plugin.yaml version")
 
 
 if __name__ == "__main__":

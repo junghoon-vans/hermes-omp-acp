@@ -37,17 +37,25 @@ CI runs both the unit and native integration suites against the provider wheel i
 
 ## Build the distribution
 
+Root [`plugin.yaml`](plugin.yaml) is the single source of the package/plugin `version` and `description`. Edit those fields there, not in `pyproject.toml`. The project declares both fields as dynamic; [`hatch_build.py`](hatch_build.py) reads the manifest through Hatchling's custom metadata hook and supplies them to the wheel and sdist metadata.
+
+Hatchling and PyYAML are isolated build dependencies declared in `pyproject.toml`; neither is a provider runtime dependency. The sdist includes the hook and manifest so a wheel built from the sdist uses the same metadata.
+
 Install `uv`, then build the distribution from the repository root:
 
 ```sh
 uv build --out-dir dist
 ```
 
-CI builds the root distribution.
+CI builds the root distribution and checks both artifacts with Twine. To run the same metadata check locally after building:
+
+```sh
+uvx --from twine twine check --strict dist/*
+```
 
 ## Publish the provider distribution
 
-Publish `hermes-omp-acp` from tags named `vX.Y.Z`. Tags may use an optional `aN`, `bN`, or `rcN` suffix, and the version must exactly match root `pyproject.toml`.
+Publish `hermes-omp-acp` from tags named `vX.Y.Z`. Tags may use an optional `aN`, `bN`, or `rcN` suffix, and the version after `v` must exactly match `version` in root `plugin.yaml`. The release preparation job checks the package name in `pyproject.toml` and the version in `plugin.yaml` before compatibility checks and publication.
 
 ### One-time trusted-publishing setup
 
@@ -67,11 +75,11 @@ Pending publishers do not reserve project names; confirm the project name is ava
 
 ### TestPyPI dry run and installed-package validation
 
-Set the version in root `pyproject.toml`, commit the release candidate, then create and push its matching tag. Do not create a GitHub Release yet. For example, for version `0.1.0`:
+Set `version` in root `plugin.yaml`, build and check the distribution as described above, and commit the release preparation. After the release PR is merged, create and push the matching tag at that merged commit. Do not create a GitHub Release yet. For example, for version `0.2.0`:
 
 ```sh
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
 In GitHub, open **Actions → `publish.yml` → Run workflow**, enter the existing tag in the `tag` input, and start the run. The workflow runs its reusable CI prerequisite and uploads the tested wheel and sdist artifacts to TestPyPI unchanged. `workflow_dispatch` publishes **only** to TestPyPI; it does not create a GitHub Release or upload to production PyPI. This is a real TestPyPI publication, not a no-side-effect simulation.
@@ -80,7 +88,7 @@ Validate the package from TestPyPI in a disposable Hermes environment/profile. S
 
 ```sh
 HERMES_PYTHON=/absolute/path/to/hermes/python
-VERSION=0.1.0
+VERSION=0.2.0
 "$HERMES_PYTHON" -m pip install 'agent-client-protocol>=0.9.0,<0.10.0'
 "$HERMES_PYTHON" -m pip install --no-deps \
   --index-url https://test.pypi.org/simple \
@@ -99,7 +107,7 @@ After the TestPyPI install check succeeds, create and publish a GitHub Release f
 
 - A tag/version mismatch or failed CI gate prevents upload. Inspect the workflow logs, fix the provider, and create a correctly versioned tag for the corrected commit. Do not edit or replace the tested artifacts.
 - If a TestPyPI upload has succeeded, use a new version and matching tag for another test upload rather than relying on overwriting it.
-- Production PyPI versions are immutable: an uploaded file cannot be replaced or re-uploaded for that version. If any production artifact was uploaded before a failure, treat that version as consumed; bump the version in root `pyproject.toml` and publish a new matching tag and GitHub Release.
+- Production PyPI versions are immutable: an uploaded file cannot be replaced or re-uploaded for that version. If any production artifact was uploaded before a failure, treat that version as consumed; bump `version` in root `plugin.yaml` and publish a new matching tag and GitHub Release.
 
 ## Runtime changes and pull requests
 
