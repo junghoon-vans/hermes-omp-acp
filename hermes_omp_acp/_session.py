@@ -169,11 +169,6 @@ async def _bounded_spawn_agent_process(*args: Any, **kwargs: Any) -> AsyncGenera
             raise asyncio.CancelledError
 
 
-async def _wait_for_stderr(task: asyncio.Task[None] | None, timeout: float = 0.5) -> None:
-    if task is None:
-        return
-    with suppress(asyncio.CancelledError, Exception):
-        await asyncio.wait_for(asyncio.shield(task), timeout=timeout)
 
 
 def validate_stream_limit_bytes(value: Any) -> int:

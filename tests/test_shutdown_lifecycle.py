@@ -3,6 +3,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+import time
 from unittest.mock import patch
 
 from providers import get_provider_profile
@@ -78,7 +79,7 @@ class ShutdownLifecycleTests(unittest.TestCase):
         self._assert_reaped(self, pid)
 
     def test_connection_failure_remains_primary_when_cleanup_crosses_deadline(self):
-        client = self._client("closed-stdin")
+        client = self._client("closed-stdio")
         started = time.monotonic()
         try:
             with self.assertRaises(RuntimeError) as raised:
@@ -87,7 +88,8 @@ class ShutdownLifecycleTests(unittest.TestCase):
             pid = self._peer_pid()
         finally:
             client.close()
-        self.assertIsInstance(raised.exception.__cause__, (BrokenPipeError, ConnectionError))
+        self.assertIsInstance(raised.exception.__cause__, ConnectionError)
+        self.assertGreater(elapsed, 1.0, "The peer must keep cleanup active past the request deadline")
         self.assertLess(elapsed, 8.0)
         self._assert_reaped(self, pid)
 

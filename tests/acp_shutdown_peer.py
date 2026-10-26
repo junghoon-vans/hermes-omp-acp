@@ -26,8 +26,9 @@ def main():
         elif request["method"] == "session/new":
             _reply(request, {"sessionId": "shutdown-peer", "configOptions": []})
             (Path.cwd() / "shutdown-peer.pid").write_text(str(os.getpid()), encoding="ascii")
-            if mode == "closed-stdin":
+            if mode == "closed-stdio":
                 os.close(sys.stdin.fileno())
+                os.close(sys.stdout.fileno())
             while True:
                 time.sleep(1)
         else:
