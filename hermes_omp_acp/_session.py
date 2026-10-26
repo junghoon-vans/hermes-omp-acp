@@ -236,6 +236,17 @@ def _as_mapping(value: Any) -> Mapping[str, Any]:
     return {}
 
 
+def _validate_protocol_version(initialize_result: Any) -> None:
+    version = _as_mapping(initialize_result).get("protocolVersion")
+    if type(version) is not int or version != PROTOCOL_VERSION:
+        raise ACPError(
+            f"Unsupported OMP ACP protocol version {version!r}; supported version is {PROTOCOL_VERSION}.",
+            phase="initialize",
+            method="initialize",
+            prompt_dispatched=False,
+        )
+
+
 def _validate_mcp_transports(mcp_servers: list[dict], initialize_result: Any) -> None:
     agent_capabilities = _as_mapping(_as_mapping(initialize_result).get("agentCapabilities"))
     mcp_capabilities = _as_mapping(agent_capabilities.get("mcpCapabilities"))
@@ -445,8 +456,30 @@ class _SessionCallbacks:
         self.request_context = request_context
         self.text_parts: list[str] = []
         self.reasoning_parts: list[str] = []
+        self.initializing = True
+        self.initialize_request_id: int | str | None = None
+        self.initialize_response: Mapping[str, Any] | None = None
 
     def observe(self, event: StreamEvent) -> None:
+        if self.initializing:
+            if (
+                event.direction == StreamDirection.OUTGOING
+                and event.message.get("method") == "initialize"
+            ):
+                self.initialize_request_id = event.message.get("id")
+            elif (
+                event.direction == StreamDirection.INCOMING
+                and "method" not in event.message
+                and "id" in event.message
+                and "result" in event.message
+            ):
+                # Only initialization is outstanding. Retain at most one frame,
+                # including a response observed before the outgoing drain ends.
+                if (
+                    self.initialize_response is None
+                    or event.message["id"] == self.initialize_request_id
+                ):
+                    self.initialize_response = event.message
         # ACP's observer runs after the JSON-RPC frame has been drained to stdin.
         if (
             event.direction == StreamDirection.OUTGOING
@@ -837,6 +870,19 @@ class ACPRuntime:
                             ),
                         ),
                     )
+                    callbacks.initializing = False
+                    initialize_frame = callbacks.initialize_response
+                    callbacks.initialize_response = None
+                    raw_initialize_result = (
+                        initialize_frame.get("result")
+                        if initialize_frame is not None
+                        and initialize_frame.get("id") == callbacks.initialize_request_id
+                        else None
+                    )
+                    # SDK model validation coerces strings/bools/floats to int.
+                    # Check the correlated wire result instead, outside observe:
+                    # the SDK logs and suppresses observer exceptions.
+                    _validate_protocol_version(raw_initialize_result)
                     _validate_mcp_transports(mcp_servers, initialize_result)
                     session = await self._request(
                         state,

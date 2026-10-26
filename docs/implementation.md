@@ -18,6 +18,8 @@ The client calls the runtime's `list_models`, `run`, `cancel`, and `close` inter
 
 Each completion opens a new OMP process and ACP session, sending the conversation history with the request. Responses are buffered before being returned as completion objects or stream chunks.
 
+Initialization must return the protocol version supported by the installed SDK. An unsupported or invalid version is a terminal negotiation failure before session creation or prompting; model discovery returns unavailable rather than an apparently usable model list. Unknown optional capability fields remain compatible.
+
 When a model is explicitly requested, the client selects it in that same session before sending the prompt, using `session/set_config_option` or the legacy `session/set_model` method. Unavailable models, selection errors, and returned model mismatches abort the completion instead of falling back to OMP's default. When no current model is returned, the successful selection RPC is the acknowledgement. Omitting the model allows the session default.
 
 Synchronous completions run the SDK on a local event loop; asynchronous completions use the caller's event loop. Model discovery retains Hermes's synchronous interface and uses a worker thread when called from an existing event loop. That worker preserves the caller's context.
