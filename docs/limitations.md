@@ -29,9 +29,17 @@ The plugin's ACP filesystem callbacks also enforce these checks:
 
 These checks describe the ACP filesystem callbacks, not every possible OMP tool execution path. The [session implementation](../hermes_omp_acp/_session.py) applies Hermes's shared safety and redaction helpers.
 
+## OMP task workspaces and interruption
+
+Each `omp_task` call starts a fresh OMP process and ACP session. Its task ID retains the Git worktree and files, not the ACP conversation. After creation, the worktree remains after success, failure, or stop; the plugin does not automatically remove it or merge its branch. Review and merge retained changes yourself.
+
+On stop, the task's interrupt handler closes and reaps its direct OMP ACP child, then waits for the task worker to drain before releasing that task's workspace lock. It does not guarantee termination of processes that OMP or its MCP tools might spawn. Hermes may abandon waiting for its outer tool worker after its interrupt grace period; the task worker still holds the workspace lock until the child is reaped and the worker exits. An in-flight Git command setting up the worktree is not interrupted: the handler waits for setup to finish, prevents ACP launch, and drains its worker.
+
+The configured repository allowlist restricts which repositories can be selected; it is not an operating-system sandbox. See [OMP task tool settings](configuration.md#omp-task-tool).
+
 ## Concurrent OMP startup
 
-OMP 15.7.6 can fail with `SQLiteError: database is locked` when two processes first initialize the same new OMP auth store. Its schema setup selects WAL mode before installing SQLite's busy timeout. Initialize the intended OMP profile with one successful model-discovery or task call before launching concurrent tasks. The plugin reports the native startup failure and retains the task worktree; it does not retry requests or serialize unrelated tasks. Native concurrency verification uses an initialized disposable OMP profile.
+At the minimum OMP version, **15.7.6**, concurrent first opens of a fresh shared SQLite auth store can fail with `SQLiteError: database is locked`. The upstream schema setup selects WAL mode before installing SQLite's busy timeout. Initialize the intended OMP profile with one successful model-discovery or task call before launching concurrent tasks. The plugin reports the native startup failure and retains any task worktree; it does not retry requests or serialize unrelated tasks. Native concurrency verification uses an initialized disposable OMP profile.
 
 ## MCP configuration compatibility
 

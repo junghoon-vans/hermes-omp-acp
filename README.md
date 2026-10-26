@@ -18,6 +18,8 @@ Hermes sends provider requests and tool tasks to `omp acp`; OMP handles model in
 - **OMP 15.7.6 or later**, with `omp` on the Hermes process's `PATH` and a configured model. This version fixes activation of client-provided MCP tools in ACP sessions.
 - **Python matching Hermes:** 3.11–3.13 for Hermes 0.21.4; 3.14 for Hermes 0.22.x.
 
+The independent task tool has the same minimums; it does not raise the Hermes requirement to 0.22.5. The reviewed combinations are Hermes 0.21.4 / OMP 15.7.6 and Hermes 0.22.5 / OMP 18.12.6; see [verification and limits](docs/verification.md#minimum-version-boundaries).
+
 ## Quick start
 
 ### 1. Install and enable the plugins you need
@@ -64,9 +66,11 @@ For a running Hermes gateway, restart it after updating the configuration.
 
 ### Run an isolated OMP task
 
-Install the Python distribution in Hermes's environment and enable `omp-task` to make the `omp_task` tool available. Configure its required `model_id` and allowed repository roots as described in [OMP task tool settings](docs/configuration.md#omp-task-tool).
+Install the Python distribution in Hermes's environment and enable `omp-task` to make `omp_task(repository, goal, task_id?)` available. The existing model provider is unchanged and need not be enabled or selected to use this tool. Configure its required `model_id` and allowed repository roots as described in [OMP task tool settings](docs/configuration.md#omp-task-tool), including the [arguments and result contract](docs/configuration.md#tool-arguments-and-results).
 
 Each tool call starts a fresh OMP ACP session. Reusing `task_id` reuses the task's files and worktree, not its ACP conversation. Once created, the worktree remains after successful, failed, or stopped OMP invocations. Stop reaps only that task's OMP process and waits for its worker before releasing the workspace; an in-flight Git setup may delay stop. The tool is an ordinary Hermes plugin and does not require Advanced Delegation or a `model_map` backend.
+
+The tool returns a JSON string containing the task identity, worktree path, branch, base commit, response, and status. Review and merge retained changes yourself: the plugin does not merge or clean up worktrees automatically, and it adds no status/cancel tools. An allowed repository root constrains workspace selection, not the OMP process's operating-system permissions.
 
 ### Alternative: install directly with Hermes
 
@@ -83,6 +87,8 @@ hermes plugins enable omp-task
 ```
 
 The task directory is a wrapper for the same `hermes-omp-acp` Python distribution, declared as its install dependency; it is not a second package. For a named profile, prefix every command with `hermes -p <profile>`. The root manifest remains `kind: model-provider`.
+
+These package-index and GitHub commands require a published distribution/default branch containing this implementation. To evaluate an unmerged PR, build and install its wheel from the checked-out source as described in [Installed-wheel plugin discovery](CONTRIBUTING.md#installed-wheel-plugin-discovery); the directory wrapper's dependency does not install an unmerged PR's Python code.
 
 Installing the Python distribution with `pip` instead discovers both entry points from that one package; use the PyPI instructions above when you prefer that route.
 

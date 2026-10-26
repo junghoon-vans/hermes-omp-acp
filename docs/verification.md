@@ -4,7 +4,7 @@
 
 [CI](https://github.com/junghoon-vans/hermes-omp-acp/actions) checks both the latest stable Hermes release with OMP's npm `latest` version on Python 3.14, and the minimum supported Hermes 0.21.4 (`v2026.9.21`) with OMP 15.7.6 on Python 3.11. Both jobs use the latest Bun runtime. CI resolves each Hermes release to a commit SHA and records the source revision and executable versions in the logs.
 
-CI builds and installs the wheel, then runs the ACP regression suite and native OMP integration suite. The native tests use a local OpenAI-compatible model endpoint to exercise provider discovery, model-picker availability, model selection, async responses, native file reading, MCP tool execution, and Hermes CLI output without external credentials.
+CI builds and installs the wheel, then runs the ACP regression suite and native OMP integration suite. The native tests use a local OpenAI-compatible model endpoint to exercise provider discovery, model-picker availability, model selection, async responses, native file reading, MCP tool execution, Hermes CLI output, and independent `omp_task` worktree edits/reuse/concurrency without external credentials. No official Advanced Delegation installation or `model_map` configuration is needed.
 
 Each integration scenario uses temporary Hermes and OMP homes. The model endpoint requests a file read or a stdio MCP tool call, then produces its response from the fresh token returned by actual OMP tool execution. The token is not supplied in the initial prompt.
 
@@ -26,6 +26,19 @@ The standalone client's ACP peer regressions also exercise permission cancellati
 Lifecycle regressions use peer readiness gates to establish overlapping sessions before releasing or cancelling them. They verify that timeout or caller cancellation reaps only the affected child while a sibling still completes, and that `close()` stops and reaps all active children. Additional cases cover one timeout budget across initialization/session creation/model selection, and ordered text/reasoning bursts followed immediately by the prompt response. The tests use the public provider/client interface, not private module names or transport mocks.
 
 The `omp_task` suite exercises retained worktree reuse, fresh ACP sessions on reuse, and task-level interruption through Hermes's real sequential tool executor and registry. It verifies that the stopped task's subprocess is reaped before its workspace becomes reusable and that a concurrent independent task remains active.
+
+### Independent-task review baseline
+
+The local review record for implementation commit [`ffe0382c94535ffbca327d66624e97ede964ee5e`](https://github.com/junghoon-vans/hermes-omp-acp/commit/ffe0382c94535ffbca327d66624e97ede964ee5e) (2026-10-26, Apple Silicon macOS) reports:
+
+| Hermes | Python | OMP | Unit/artifact suite | Native scenarios |
+| --- | --- | --- | --- | --- |
+| 0.21.4 | 3.11.15 | 15.7.6 | 57 passed | 8 passed |
+| 0.22.5 | 3.14.6 | 18.12.6 | 57 passed | 8 passed |
+
+These native runs deliberately excluded the CLI scenario that starts gateway services; the exclusion was not a unittest skip. They used a deterministic localhost model endpoint, not paid APIs. The initial minimum-version concurrency run failed during simultaneous initialization of a fresh OMP SQLite auth store; the final run initialized the disposable OMP profile with model discovery first. There is no plugin retry or cross-task serialization workaround; see [Concurrent OMP startup](limitations.md#concurrent-omp-startup).
+
+The same record reports wheel/sdist strict Twine checks, installed-wheel discovery and dispatch on both Hermes versions, and five installed-sdist packaging checks. Treat these as the recorded implementation baseline, not as a rerun of all native scenarios for a later documentation-only change. Current PR checks are separate evidence and must be read at the PR's current head.
 
 ## Package metadata and entrypoint checks
 

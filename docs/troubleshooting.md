@@ -12,7 +12,13 @@ If loading the plugin reports a missing `acp` module, install the provider with 
 
 ## `omp_task` is unavailable
 
-The tool requires the `hermes-omp-acp` distribution installed in the Python environment that runs Hermes and the separate `omp-task` plugin enabled in the active profile. The GitHub directory-plugin installation contains the model-provider manifest only. Configure required `model_id` and `allowed_roots` values under `plugins.entries.omp-task.settings`; see [OMP task tool settings](configuration.md#omp-task-tool). The tool is discovered through Hermes's general plugin loader and does not require Advanced Delegation or `model_map`.
+Install `hermes-omp-acp` in Hermes's Python environment with `python -m pip install hermes-omp-acp`, or install the standalone GitHub directory wrapper with `hermes plugins install junghoon-vans/hermes-omp-acp/plugins/omp-task` (see [the GitHub directory installation notes](../README.md#alternative-install-directly-with-hermes)). Then enable it independently with `hermes plugins enable omp-task`; for a named profile, use `hermes -p <profile> plugins enable omp-task`. The repository root remains the `omp-acp-provider` model-provider manifest, while the nested wrapper exposes `omp-task` as a general plugin. It does not require enabling `omp-acp-provider`, selecting a model-provider backend, any Nix activation, Advanced Delegation, or `model_map`.
+
+Configure `model_id`, `allowed_roots`, and any task `command`, `args`, or `mcp_enabled` under `plugins.entries.omp-task.settings`; these are trusted operator settings, not tool-call arguments (which are only `repository`, `goal`, and optional `task_id`). See [OMP task tool settings](configuration.md#omp-task-tool). The repository allowlist restricts task selection but is not an operating-system sandbox.
+
+## OMP 15.7.6 reports `database is locked` on concurrent startup
+
+At OMP 15.7.6, concurrent OMP processes can fail when they race to initialize the same fresh shared SQLite auth store. Make one successful model-discovery or task call using the intended OMP profile before launching concurrent tasks. See [Concurrent OMP startup](limitations.md#concurrent-omp-startup) for details.
 
 ## Model discovery or inference fails
 

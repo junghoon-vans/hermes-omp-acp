@@ -29,9 +29,11 @@ With a real OMP installation on `PATH`, run the native integration suite in the 
 uv run --project "$HERMES_SOURCE" --no-sync python -P -m unittest discover -s tests/integration -v
 ```
 
-Set `OMP_INTEGRATION_COMMAND` to an absolute executable path to test a specific OMP installation. Each scenario uses temporary Hermes and OMP homes, a local OpenAI-compatible model endpoint, and a test file. It exercises provider discovery and model selection, async responses, native file reading, and Hermes CLI output without external credentials. The model response is based on the value returned by OMP's actual file-read tool.
+Set `OMP_INTEGRATION_COMMAND` to an absolute executable path to test a specific OMP installation. Each scenario uses temporary Hermes and OMP homes and a local OpenAI-compatible model endpoint without external credentials. Provider scenarios exercise discovery, model selection, async responses, native file reading, and Hermes CLI output. Independent `omp_task` scenarios exercise native read/write/read inside a retained worktree, source-checkout preservation, file reuse with a fresh ACP session, and distinct concurrent task worktrees. Responses are based on values returned by actual OMP tools, not tokens supplied in the prompt.
 
 The suite creates isolated homes. Keep any manual Hermes or OMP checks isolated too: point `HERMES_HOME`, `PI_CODING_AGENT_DIR`, and any other profile/data paths at temporary directories, and do not run tests against or modify a production or personal profile.
+
+The concurrent-task fixture initializes its disposable OMP profile through model discovery before starting overlapping calls. OMP 15.7.6 can fail simultaneous first opens of a fresh SQLite auth store; this fixture prerequisite is not a runtime retry or serialization guarantee. See [the limitation](docs/limitations.md#concurrent-omp-startup).
 
 CI runs both the unit and native integration suites against the distribution wheel in two combinations: the latest stable Hermes and latest OMP with Python 3.14, and Hermes 0.21.4 (`v2026.9.21`) with OMP 15.7.6 and Python 3.11. Recheck the minimum combination locally when changing compatibility-sensitive code. See [verification](docs/verification.md) for the CI scope and minimum-version boundaries.
 
@@ -42,13 +44,15 @@ This opt-in check must run with the same Python interpreter Hermes uses. Build t
 ```sh
 uv build --out-dir dist
 HERMES_PYTHON=/absolute/path/to/hermes/python
-"$HERMES_PYTHON" -m pip install --no-deps dist/hermes_omp_acp-*.whl
+uv pip install --python "$HERMES_PYTHON" --no-deps dist/hermes_omp_acp-*.whl
 HERMES_OMP_DIST_DIR=dist \
 HERMES_OMP_CHECK_INSTALLED_ENTRYPOINT=1 \
 "$HERMES_PYTHON" -P -m unittest discover -s tests -p test_packaging.py -v
 ```
 
 The check verifies the installed distribution metadata and both entry points, then invokes Hermes's real `PluginManager` and provider registry in a temporary home. Repeat with Hermes 0.21.4/Python 3.11 and 0.22.5/Python 3.14; no `advanced-delegation` plugin or `model_map` configuration is needed.
+
+Keep `PYTHONPATH="$HERMES_SOURCE"` exported as in the unit-test setup when Hermes is used from a source checkout rather than an importable installation. The installed-artifact tests execute a task through the real registry and ACP subprocess peer and load the standalone directory wrapper; they do not merely inspect entry-point strings. Use a disposable Hermes environment for this installation.
 
 ## Build the distribution
 

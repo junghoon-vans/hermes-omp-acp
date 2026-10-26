@@ -39,7 +39,9 @@ Variables must be available to the Hermes process, including a gateway launched 
 
 ## OMP task tool
 
-After installing `hermes-omp-acp` in Hermes's Python environment—through PyPI or the standalone `plugins/omp-task` directory wrapper—enable `omp-task` independently with `hermes plugins enable omp-task`. It is a general Hermes plugin in the same Python distribution as the provider; these settings are read from `plugins.entries.omp-task.settings`:
+Install `hermes-omp-acp` in Hermes's Python environment (from PyPI or the standalone `plugins/omp-task` directory wrapper), then enable the general plugin with `hermes plugins enable omp-task`. It is an optional tool in the same distribution as `omp-acp-provider`; it does not change provider routing and has no Advanced Delegation dependency. The settings live under `plugins.entries.omp-task.settings`:
+
+For this independent-tool architecture, enable `omp-task` with the general plugin commands; do not select a delegation backend. Earlier PR revisions described `delegation.backend: omp-worktree`, `delegation.backends.omp-worktree`, and `model_map` composition. Those are not configuration interfaces in the current implementation. Existing Advanced Delegation configuration for unrelated tasks is independent of this plugin.
 
 ```yaml
 plugins:
@@ -48,7 +50,7 @@ plugins:
   entries:
     omp-task:
       settings:
-        model_id: openai-codex/gpt-6.1-sol
+        model_id: "<model ID advertised by OMP>"
         allowed_roots:
           - /path/to/allowed/repositories
         command: omp
@@ -57,22 +59,95 @@ plugins:
         timeout_seconds: 900
 ```
 
-Replace `model_id` with a model ID available to OMP and `allowed_roots` with one or more absolute directory paths containing Git repositories you explicitly permit. The requested `repository` argument must be an existing Git repository root under one of these paths. Use `model_id`: Hermes reserves `model` in its plugin-settings API.
+Replace the model placeholder with a model ID offered by OMP's ACP session. `allowed_roots` must be a non-empty list of existing absolute directories. The `repository` argument must be the absolute path to an existing Git repository root within one of those directories; passing a subdirectory of a repository is rejected. The tool reads its settings from this entry when it handles each call.
 
-| Setting | Default | Purpose |
+| Setting | Default | Validation and effect |
 | --- | --- | --- |
-| `model_id` | required | OMP model ID selected for each task. |
-| `allowed_roots` | required | Non-empty list of absolute directory paths that bound eligible repository roots. |
-| `command` | `omp` | Executable name on Hermes's `PATH`, or an absolute executable path. |
-| `args` | `[acp]` | Complete ACP launch argument list as a YAML list of strings. |
-| `mcp_enabled` | `true` | Forward MCP definitions to the task's ACP session. Use a YAML boolean. |
-| `timeout_seconds` | `900` | Positive finite timeout for one task invocation, in seconds. |
+| `model_id` | required | Non-empty string; selected for each task and must be offered by the OMP ACP session. No model fallback is used. |
+| `allowed_roots` | required | Non-empty list of absolute paths to existing directories. Bounds the Git repository roots the caller may select. |
+| `command` | `omp` | Non-empty executable string, either a command on Hermes's `PATH` or an absolute path. |
+| `args` | `[acp]` | List of strings passed as the complete launch arguments. Use `[]` only when the configured executable needs no arguments. |
+| `mcp_enabled` | `true` | Boolean controlling MCP forwarding to this task's ACP session. |
+| `timeout_seconds` | `900.0` | Positive finite number (booleans are rejected). It limits ACP session startup/initialization, model selection, and prompting after workspace acquisition. It is not a hard total wall-clock deadline: repository validation and Git setup are outside it, and child/worker shutdown and lock drain can extend total time. |
 
-The shared `HERMES_OMP_ACP_MCP_ENABLED` environment override also takes precedence over this tool's `mcp_enabled` setting. Task `command`, `args`, and `model_id` come from trusted tool configuration, not caller arguments or provider launch overrides.
+The `HERMES_OMP_ACP_MCP_ENABLED` environment override also applies to `omp_task`: `0`/`false`/`no`/`off` disable, `1`/`true`/`yes`/`on` enable (case-insensitive, surrounding whitespace ignored), and any other non-empty value makes the task return an error. `HERMES_OMP_ACP_COMMAND` and `HERMES_OMP_ACP_ARGS` are provider launch overrides; `omp_task` uses its configured `command` and `args` directly. `PI_CODING_AGENT_DIR` still chooses the OMP agent directory used for MCP configuration, not task workspace storage. These variables must be available to Hermes, including a gateway service.
 
-`task_id` is optional; when omitted, the tool generates a new ID and workspace. Reuse the same 32-character lowercase hexadecimal ID with the same repository to reuse the retained Git worktree and files. Every invocation still creates a fresh OMP process and ACP session, so prior ACP conversation history is not retained.
+### Tool arguments and results
 
-Once created, a task worktree is retained after successful, failed, or stopped OMP invocations. Stop closes and reaps only that invocation's OMP process, then waits for its worker to release the workspace lock; it does not delete the worktree. Stop does not interrupt a Git command already setting up the worktree: the handler waits for setup to finish, prevents ACP launch, and drains its worker before returning. A later invocation using the same task ID can continue from its files, while other task IDs use independent worktrees.
+`omp_task` accepts exactly these arguments (`additionalProperties` is false):
+
+| Argument | Required | Contract |
+| --- | --- | --- |
+| `repository` | yes | String containing an absolute path to an existing Git repository root under a configured `allowed_roots` directory. |
+| `goal` | yes | Non-empty string of instructions for this invocation. |
+| `task_id` | no | String matching `^[0-9a-f]{32}$`. If omitted, the tool generates a 32-character lowercase hexadecimal UUID. |
+
+Example call:
+
+```json
+{
+  "repository": "/absolute/path/to/allowed/repository",
+  "goal": "Inspect the project and implement the requested change.",
+  "task_id": "0123456789abcdef0123456789abcdef"
+}
+```
+
+The tool returns a JSON string containing an object with these fields:
+
+| Field | Meaning |
+| --- | --- |
+| `task_id` | Generated only after argument-object, extra-key, and non-empty-goal checks pass. A supplied string is echoed even if malformed; outside the schema, a non-string ID or an earlier argument/goal validation failure leaves it `null`. If omitted after those checks, the tool generates a 32-character lowercase hexadecimal UUID. |
+| `path` | Retained worktree path, or `null` until workspace acquisition succeeds. |
+| `branch` | Retained branch name, or `null` until workspace acquisition succeeds. |
+| `base_commit` | Source repository commit recorded when the worktree was first created, or `null` until acquisition succeeds. |
+| `response` | OMP's text response on success; an empty string on error or cancellation. |
+| `status` | Exactly `success`, `error`, or `cancelled`. |
+| `error` | Present only for `error` and `cancelled`, containing the failure/interruption message. |
+
+Success example (angle-bracketed values stand for runtime values):
+
+```json
+{
+  "task_id": "0123456789abcdef0123456789abcdef",
+  "path": "<active Hermes home>/plugin-data/omp-task/workspaces/0123456789abcdef0123456789abcdef/tree",
+  "branch": "hermes/omp-0123456789abcdef0123456789abcdef",
+  "base_commit": "<source repository commit>",
+  "response": "<OMP response text>",
+  "status": "success"
+}
+```
+
+Error example for a repository outside the configured roots:
+
+```json
+{
+  "task_id": "0123456789abcdef0123456789abcdef",
+  "path": null,
+  "branch": null,
+  "base_commit": null,
+  "response": "",
+  "status": "error",
+  "error": "Repository is outside the configured repository roots."
+}
+```
+
+Cancellation example after workspace acquisition:
+
+```json
+{
+  "task_id": "0123456789abcdef0123456789abcdef",
+  "path": "<retained worktree path>",
+  "branch": "hermes/omp-0123456789abcdef0123456789abcdef",
+  "base_commit": "<source repository commit>",
+  "response": "",
+  "status": "cancelled",
+  "error": "OMP task interrupted."
+}
+```
+
+Each task ID owns one workspace under `<active Hermes home>/plugin-data/omp-task/workspaces/<task_id>/tree`. A fresh workspace is based on the repository's current `HEAD` and uses branch `hermes/omp-<task_id>`. Reusing the ID with the same repository reuses that branch and its files; using it with a different repository is rejected. Every invocation still starts a fresh OMP process and ACP session, so `task_id` is file/worktree reuse, not ACP session or conversation resume. Created worktrees are retained after success, failure, and cancellation; there is no automatic pruning. Different IDs have separate worktrees.
+
+Only one invocation can hold a given task ID's workspace lock at a time. A concurrent call with the same ID fails with `This OMP task already has a workspace in use.` On interruption during Git setup, the tool cannot cancel the already-running Git command: it waits for setup to return, then avoids launching ACP and drains its worker before releasing the lock. During ACP work it closes only that invocation's runtime and joins the worker before returning. Hermes's executor has its own interrupt grace period and may stop awaiting the handler before that drain completes; it cannot force the task worker to release the lock while that worker is still running.
 
 ## MCP servers
 
