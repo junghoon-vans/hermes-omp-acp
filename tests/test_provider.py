@@ -31,6 +31,7 @@ class ProviderTests(unittest.TestCase):
         })
         environment.start()
         os.environ.pop("HERMES_OMP_ACP_MCP_ENABLED", None)
+        os.environ.pop("HERMES_OMP_ACP_STREAM_LIMIT_BYTES", None)
         self.addCleanup(environment.stop)
         register()
         self.profile = get_provider_profile("omp-acp")
@@ -209,13 +210,22 @@ class ProviderTests(unittest.TestCase):
             )
         self.assertEqual(response.choices[0].message.content, "first second")
 
-    def test_configured_stream_limit_controls_large_notifications(self):
+    def test_stream_limit_configuration_and_environment_control_large_notifications(self):
         args = shlex.join([str(Path(__file__).with_name("acp_peer.py")), "large-commands"])
-        for limit in (65_536, 131_072):
-            with self.subTest(limit=limit), patch.dict(os.environ, {"HERMES_OMP_ACP_ARGS": args}):
+        for limit, override, succeeds in (
+            (65_536, "", False),
+            (131_072, "", True),
+            (65_536, " 131072 ", True),
+            (131_072, "65536", False),
+            (65_536, " \t ", False),
+        ):
+            with self.subTest(limit=limit, override=override), patch.dict(os.environ, {
+                "HERMES_OMP_ACP_ARGS": args,
+                "HERMES_OMP_ACP_STREAM_LIMIT_BYTES": override,
+            }):
                 self.configure(stream_limit_bytes=limit)
                 with closing(self.client()) as client:
-                    if limit == 65_536:
+                    if not succeeds:
                         with self.assertRaisesRegex(RuntimeError, "chunk is longer than limit"):
                             client.chat.completions.create(
                                 model="fixture/model", messages=[{"role": "user", "content": "Do the task"}],
@@ -227,6 +237,13 @@ class ProviderTests(unittest.TestCase):
                             timeout=5,
                         )
                         self.assertEqual(response.choices[0].message.content, "first second")
+
+    def test_invalid_stream_limit_environment_rejects_client_creation(self):
+        variable = "HERMES_OMP_ACP_STREAM_LIMIT_BYTES"
+        for value in ("0", "-1", "1.5", "false", "unlimited"):
+            with self.subTest(value=value), patch.dict(os.environ, {variable: value}):
+                with self.assertRaisesRegex(ValueError, variable):
+                    self.client()
 
     def test_immediate_burst_preserves_ordered_text_reasoning_and_stream_stop(self):
         args = shlex.join([str(Path(__file__).with_name("acp_peer.py")), "burst"])

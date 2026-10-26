@@ -26,7 +26,7 @@ plugins:
 
 Plugin settings are read when the provider is registered. Start a new Hermes process after changing them; restart a running gateway. These settings apply to model discovery, CLI requests, gateway requests, and auxiliary clients. Model discovery always skips MCP configuration and server startup.
 
-The stream limit applies to each incoming ACP message, not the total conversation or model context. ACP's [stdio specification](https://agentclientprotocol.com/protocol/v1/transports) defines newline-delimited JSON-RPC messages without a fixed size ceiling. Without an explicit limit, the Python SDK inherits asyncio's 64 KiB reader default; command catalogs and tool results can exceed it. Increase `stream_limit_bytes` if a legitimate message exceeds the default. Larger limits permit more memory to be buffered per active session; there is no unlimited setting. This option has no environment override.
+The stream limit applies to each incoming ACP message, not the total conversation or model context. ACP's [stdio specification](https://agentclientprotocol.com/protocol/v1/transports) defines newline-delimited JSON-RPC messages without a fixed size ceiling. Without an explicit limit, the Python SDK inherits asyncio's 64 KiB reader default; command catalogs and tool results can exceed it. Increase `stream_limit_bytes` if a legitimate message exceeds the default. Larger limits permit more memory to be buffered per active session; there is no unlimited setting.
 
 ## Environment overrides
 
@@ -37,9 +37,16 @@ For options with an environment override below, precedence is **non-empty enviro
 | `HERMES_OMP_ACP_COMMAND` | `command` | Executable name or absolute path. |
 | `HERMES_OMP_ACP_ARGS` | `args` | Complete argument list parsed with shell-style quoting, for example `acp --no-title`. |
 | `HERMES_OMP_ACP_MCP_ENABLED` | `mcp_enabled` | `0`/`false`/`no`/`off` disable; `1`/`true`/`yes`/`on` enable. Case-insensitive; surrounding whitespace is ignored. Other values reject completions. |
+| `HERMES_OMP_ACP_STREAM_LIMIT_BYTES` | `stream_limit_bytes` | Positive base-10 integer in bytes, for example `16777216`. Surrounding whitespace is ignored; invalid or non-positive values reject client creation. |
 | `PI_CODING_AGENT_DIR` | OMP agent directory | Defaults to `~/.omp/agent`. The provider reads `mcp.json` there; OMP also uses this directory for its own agent data. |
 
 Variables must be available to the Hermes process, including a gateway launched as a service. Restart a running gateway after changing its environment. The MCP environment override is checked for each completion, against the plugin setting captured at registration.
+
+The stream-limit environment override is read when a client is created and applies to all of that client's ACP sessions, including model discovery. An empty or whitespace-only value uses the configured limit, or the built-in 16 MiB default when the setting is omitted. Plugin settings must remain valid even when an environment override is present.
+
+```sh
+export HERMES_OMP_ACP_STREAM_LIMIT_BYTES=16777216
+```
 
 ## MCP servers
 
