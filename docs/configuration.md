@@ -14,6 +14,7 @@ plugins:
         command: omp
         args: [acp]
         mcp_enabled: true
+        stream_limit_bytes: 16777216
 ```
 
 | Setting | Default | Purpose |
@@ -21,12 +22,15 @@ plugins:
 | `command` | `omp` | Executable name on the Hermes process's `PATH`, or an absolute executable path. |
 | `args` | `[acp]` | Complete argument list as a YAML list of strings. Include `acp` when launching OMP directly. Use `[]` for a wrapper that needs no arguments. |
 | `mcp_enabled` | `true` | Forward active definitions from OMP's global MCP file into completion sessions. Use a YAML boolean, not a quoted string. |
+| `stream_limit_bytes` | `16777216` (16 MiB) | Maximum incoming ACP JSONL message size in bytes, excluding the terminating newline. Must be a positive YAML integer; zero, negative values, booleans, strings, and null are rejected. |
 
 Plugin settings are read when the provider is registered. Start a new Hermes process after changing them; restart a running gateway. These settings apply to model discovery, CLI requests, gateway requests, and auxiliary clients. Model discovery always skips MCP configuration and server startup.
 
+The stream limit applies to each incoming ACP message, not the total conversation or model context. ACP's [stdio specification](https://agentclientprotocol.com/protocol/v1/transports) defines newline-delimited JSON-RPC messages without a fixed size ceiling. Without an explicit limit, the Python SDK inherits asyncio's 64 KiB reader default; command catalogs and tool results can exceed it. Increase `stream_limit_bytes` if a legitimate message exceeds the default. Larger limits permit more memory to be buffered per active session; there is no unlimited setting. This option has no environment override.
+
 ## Environment overrides
 
-For each option, precedence is **non-empty environment variable → plugin setting → built-in default**. Existing environment-variable setups continue to work. Empty or whitespace-only override values fall back to the plugin setting.
+For options with an environment override below, precedence is **non-empty environment variable → plugin setting → built-in default**. Existing environment-variable setups continue to work. Empty or whitespace-only override values fall back to the plugin setting.
 
 | Environment variable | Overrides | Format |
 | --- | --- | --- |

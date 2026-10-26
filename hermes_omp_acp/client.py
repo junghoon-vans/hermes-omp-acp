@@ -13,7 +13,7 @@ from ._bridge import (
     completion_to_stream_chunks,
     format_messages_as_prompt,
 )
-from ._session import ACPRuntime
+from ._session import ACPRuntime, DEFAULT_STREAM_LIMIT_BYTES
 
 _DEFAULT_TIMEOUT_SECONDS = 900.0
 
@@ -46,6 +46,7 @@ class OmpACPClient:
         command: str | None = None,
         args: list[str] | None = None,
         mcp_enabled: bool = True,
+        stream_limit_bytes: int = DEFAULT_STREAM_LIMIT_BYTES,
         **_: Any,
     ):
         self.api_key = api_key or "omp-acp"
@@ -58,6 +59,7 @@ class OmpACPClient:
             command=command,
             args=args,
             mcp_enabled=mcp_enabled,
+            stream_limit_bytes=stream_limit_bytes,
         )
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create_chat_completion))
 

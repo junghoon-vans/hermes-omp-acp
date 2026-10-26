@@ -40,7 +40,13 @@ from .mcp import load_mcp_servers
 
 
 # Command catalogs and tool results can exceed asyncio's default 64 KiB line limit.
-_ACP_STREAM_LIMIT = 16 * 1024 * 1024
+DEFAULT_STREAM_LIMIT_BYTES = 16 * 1024 * 1024
+
+
+def validate_stream_limit_bytes(value: Any) -> int:
+    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+        raise ValueError("omp-acp-provider.settings.stream_limit_bytes must be a positive integer")
+    return value
 
 
 def _resolve_command() -> str:
@@ -336,7 +342,9 @@ class ACPRuntime:
         command: str | None = None,
         args: list[str] | None = None,
         mcp_enabled: bool = True,
+        stream_limit_bytes: int = DEFAULT_STREAM_LIMIT_BYTES,
     ):
+        self._stream_limit_bytes = validate_stream_limit_bytes(stream_limit_bytes)
         self._acp_command = acp_command or command or _resolve_command()
         self._acp_args = list(
             acp_args if acp_args is not None else args if args is not None else _resolve_args()
@@ -432,7 +440,7 @@ class ACPRuntime:
                     transport_kwargs={
                         "stderr": aio_subprocess.PIPE,
                         "shutdown_timeout": 2.0,
-                        "limit": _ACP_STREAM_LIMIT,
+                        "limit": self._stream_limit_bytes,
                     },
                     use_unstable_protocol=True,
                     observers=[callbacks.observe],

@@ -96,6 +96,10 @@ class ProviderTests(unittest.TestCase):
             ({"args": None}, "args"),
             ({"mcp_enabled": "false"}, "mcp_enabled"),
             ({"mcp_enabled": 0}, "mcp_enabled"),
+            *(
+                ({"stream_limit_bytes": value}, "stream_limit_bytes")
+                for value in (0, -1, True, False, 1.5, "16777216", None)
+            ),
         ):
             with self.subTest(settings=settings), self.assertRaisesRegex(ValueError, key):
                 self.configure(**settings)
@@ -204,6 +208,25 @@ class ProviderTests(unittest.TestCase):
                 timeout=5,
             )
         self.assertEqual(response.choices[0].message.content, "first second")
+
+    def test_configured_stream_limit_controls_large_notifications(self):
+        args = shlex.join([str(Path(__file__).with_name("acp_peer.py")), "large-commands"])
+        for limit in (65_536, 131_072):
+            with self.subTest(limit=limit), patch.dict(os.environ, {"HERMES_OMP_ACP_ARGS": args}):
+                self.configure(stream_limit_bytes=limit)
+                with closing(self.client()) as client:
+                    if limit == 65_536:
+                        with self.assertRaisesRegex(RuntimeError, "chunk is longer than limit"):
+                            client.chat.completions.create(
+                                model="fixture/model", messages=[{"role": "user", "content": "Do the task"}],
+                                timeout=5,
+                            )
+                    else:
+                        response = client.chat.completions.create(
+                            model="fixture/model", messages=[{"role": "user", "content": "Do the task"}],
+                            timeout=5,
+                        )
+                        self.assertEqual(response.choices[0].message.content, "first second")
 
     def test_immediate_burst_preserves_ordered_text_reasoning_and_stream_stop(self):
         args = shlex.join([str(Path(__file__).with_name("acp_peer.py")), "burst"])

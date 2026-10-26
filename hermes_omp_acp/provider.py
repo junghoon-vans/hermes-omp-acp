@@ -6,10 +6,13 @@ from dataclasses import dataclass
 from providers import register_provider
 from providers.base import ProviderProfile
 
+from ._session import DEFAULT_STREAM_LIMIT_BYTES, validate_stream_limit_bytes
+
 
 @dataclass
 class OmpACPProfile(ProviderProfile):
     mcp_enabled: bool = True
+    stream_limit_bytes: int = DEFAULT_STREAM_LIMIT_BYTES
 
     def create_client(self, **client_kwargs):
         from .client import OmpACPClient
@@ -22,6 +25,7 @@ class OmpACPProfile(ProviderProfile):
         client_kwargs.setdefault("api_key", self.name)
         client_kwargs.setdefault("base_url", self.base_url)
         client_kwargs.setdefault("mcp_enabled", self.mcp_enabled)
+        client_kwargs.setdefault("stream_limit_bytes", self.stream_limit_bytes)
         return OmpACPClient(**client_kwargs)
 
     def fetch_models(self, *, api_key=None, base_url=None, timeout=15):
@@ -41,6 +45,9 @@ def register():
     command = settings.get("command", "omp")
     args = settings.get("args", ["acp"])
     mcp_enabled = settings.get("mcp_enabled", True)
+    stream_limit_bytes = validate_stream_limit_bytes(
+        settings.get("stream_limit_bytes", DEFAULT_STREAM_LIMIT_BYTES)
+    )
     if not isinstance(command, str) or not command.strip():
         raise ValueError("omp-acp-provider.settings.command must be a non-empty executable string")
     if not isinstance(args, list) or not all(isinstance(arg, str) for arg in args):
@@ -59,6 +66,7 @@ def register():
         process_command=command,
         process_args=tuple(args),
         mcp_enabled=mcp_enabled,
+        stream_limit_bytes=stream_limit_bytes,
         process_command_env_vars=("HERMES_OMP_ACP_COMMAND",),
         process_args_env_var="HERMES_OMP_ACP_ARGS",
     ))
