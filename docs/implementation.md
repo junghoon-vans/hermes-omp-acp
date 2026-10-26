@@ -26,6 +26,8 @@ Incoming message and reasoning chunks are collected in wire order before the pro
 
 One timeout budget covers initialization, session creation, model selection, and prompting. Requests also monitor child-process exit so a dead peer reports its failure instead of waiting for the response deadline. Child shutdown can take additional time. Each session tracks its own process and response buffers; `close()` stops active requests and their processes.
 
+Cleanup retains the normal two-second graceful shutdown, but also bounds stdin close, termination, kill, and child reaping. Repeated cancellation cannot abandon that cleanup, and cleanup crossing the request deadline does not replace an already-raised request failure with a timeout. These bounds apply to the owned OMP child, not an arbitrary descendant process tree.
+
 The client uses an explicit session workspace when supplied, otherwise Hermes's logical working-directory resolver. Model discovery disables filesystem callbacks, skips MCP configuration loading, and sends an empty `mcpServers` list. Completion sessions forward the supported global OMP MCP definitions as described below.
 
 Native ACP permission requests are cancelled by the plugin's own callback, preserving the previous behavior. See [Known limitations](limitations.md#native-acp-approval-requests) for the permission and filesystem policies.

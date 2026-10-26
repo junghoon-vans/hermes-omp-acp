@@ -14,6 +14,12 @@ If loading the plugin reports a missing or incompatible `acp` module, install th
 
 Confirm OMP authentication works and the selected model is available to that account.
 
+## Failed or timed-out completion
+
+The provider reports structured failure context, including the request phase, RPC method/code when available, process exit code, original cause, and whether prompt dispatch is known. Invalid configuration, unsupported protocol/capabilities, unavailable models, and RPC rejections are terminal rather than invitations to retry or switch providers.
+
+Only a classified transient transport failure known to precede prompt dispatch is retryable. A timeout or lost connection after dispatch means the outcome is unknown: the provider cannot prove that OMP performed no work and does not authorize automatic replay or fallback. This policy also applies when Hermes's delegated watchdog wraps the provider error. Inspect the task's actual effects before manually resubmitting it; cancellation and process exit do not roll back completed tool actions.
+
 ## MCP tools missing
 
 A successful model picker does not check MCP connectivity: model discovery deliberately sends no MCP servers. Check the environment of the process that launches Hermes, not just an interactive terminal:
