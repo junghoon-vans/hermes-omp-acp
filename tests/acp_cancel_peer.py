@@ -73,6 +73,8 @@ def main():
                     "options": [{"value": "fixture/model", "name": "Fixture"}],
                 }],
             })
+        elif method == "session/set_config_option":
+            _reply(request, {"configOptions": []})
         elif method == "session/prompt":
             prompt_count = _next_prompt_count()
             if prompt_count == 1:

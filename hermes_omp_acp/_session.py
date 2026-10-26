@@ -36,7 +36,7 @@ from agent.file_safety import (
 from agent.redact import redact_sensitive_text
 from agent.runtime_cwd import resolve_agent_cwd
 
-from .errors import ACPError, ACPTimeoutError
+from .errors import ACPCancelledError, ACPError, ACPTimeoutError
 from .mcp import load_mcp_servers
 
 
@@ -641,30 +641,30 @@ class ACPRuntime:
             return
         self._cancel_owner_task(context)
 
-    async def _cancel_prompt(self, context: _RequestContext) -> None:
+    async def _notify_prompt_cancel(self, context: _RequestContext) -> bool:
         try:
             await asyncio.wait_for(
                 context.connection.cancel(context.session_id),
                 timeout=_CANCEL_SEND_TIMEOUT,
             )
-        except Exception:
-            self._cancel_owner_task(context)
-            return
+        except (Exception, asyncio.CancelledError):
+            return False
 
         prompt_task = context.prompt_task
         if prompt_task is None:
-            self._cancel_owner_task(context)
-            return
+            return False
         try:
             await asyncio.wait_for(asyncio.shield(prompt_task), timeout=_CANCEL_CONFIRM_TIMEOUT)
-        except TimeoutError:
-            self._cancel_owner_task(context)
-        except asyncio.CancelledError:
-            self._cancel_owner_task(context)
+        except (TimeoutError, asyncio.CancelledError):
+            return False
         except Exception:
-            # A terminal RPC error also settles the original prompt; _request
-            # converts it to the interrupted outcome when cancellation is set.
-            return
+            # A terminal RPC error also confirms that the prompt has settled.
+            return True
+        return True
+
+    async def _cancel_prompt(self, context: _RequestContext) -> None:
+        if not await self._notify_prompt_cancel(context):
+            self._cancel_owner_task(context)
 
     @staticmethod
     def _cancel_owner_task(context: _RequestContext) -> None:
@@ -713,6 +713,11 @@ class ACPRuntime:
             await _wait_for_stderr(state.stderr_task)
             raise _process_exit_error(state.process, state.stderr_tail)
         except asyncio.CancelledError as exc:
+            if method == "session/prompt" and not context.cancel_requested and not response_task.done():
+                # Native task cancellation and the request deadline are local
+                # to this session. Notify its peer before abandoning the turn,
+                # without changing the caller's cancellation/timeout exception.
+                await self._notify_prompt_cancel(context)
             if context.cancel_requested:
                 raise ACPCancelledError(
                     "OMP ACP request was interrupted.",

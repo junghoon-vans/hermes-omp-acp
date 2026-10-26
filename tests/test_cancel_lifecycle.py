@@ -1,15 +1,16 @@
 """Public-client and Hermes cancellation-hook lifecycle regressions."""
 
+import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import json
 import os
 from pathlib import Path
 import shlex
+import subprocess
 import sys
 import tempfile
 import time
 import unittest
-from unittest.mock import patch
 
 from hermes_omp_acp.client import OmpACPClient
 from hermes_omp_acp.errors import ACPCancelledError
@@ -128,6 +129,43 @@ class CancellationLifecycleTests(unittest.TestCase):
             client.close()
             executor.shutdown(wait=True, cancel_futures=True)
 
+    def test_request_timeout_notifies_the_remote_prompt(self):
+        client = self._client()
+        try:
+            with self.assertRaises(TimeoutError):
+                client.chat.completions.create(
+                    model="fixture/model",
+                    messages=[{"role": "user", "content": "wait for the request deadline"}],
+                    timeout=2,
+                )
+            self.assertTrue((self.home / "cancel-peer.prompt-ready").exists())
+            self.assertTrue((self.home / "cancel-peer.cancel-received").exists())
+            self._assert_reaped(self._peer_pid())
+        finally:
+            client.close()
+
+    def test_async_task_cancellation_notifies_the_remote_prompt(self):
+        async def exercise():
+            client = self._client()
+            request = asyncio.create_task(client.chat.completions.create(
+                model="fixture/model",
+                messages=[{"role": "user", "content": "wait for task cancellation"}],
+                timeout=10,
+            ))
+            try:
+                await asyncio.to_thread(self._wait_for_marker, "cancel-peer.prompt-ready")
+                pid = self._peer_pid()
+                request.cancel()
+                with self.assertRaises(asyncio.CancelledError):
+                    await asyncio.wait_for(request, timeout=5)
+                self.assertTrue((self.home / "cancel-peer.cancel-received").exists())
+                self._assert_reaped(pid)
+            finally:
+                client.close()
+                await asyncio.gather(request, return_exceptions=True)
+
+        asyncio.run(exercise())
+
     def test_hermes_interrupt_dispatches_the_real_client_cancel_hook(self):
         hermes_home = self.home / "hermes"
         omp_home = self.home / "omp"
@@ -146,46 +184,62 @@ class CancellationLifecycleTests(unittest.TestCase):
             },
             "memory": {"memory_enabled": False, "user_profile_enabled": False},
         }), encoding="utf-8")
-        environment = patch.dict(os.environ, {
+        environment = {
+            key: value for key, value in os.environ.items()
+            if key in {"PATH", "PYTHONPATH", "TMPDIR", "TMP", "TEMP", "LANG",
+                       "LC_ALL", "SYSTEMROOT", "HERMES_BUNDLED_LOCALES"}
+        }
+        environment.update({
+            "HOME": str(self.home),
             "HERMES_HOME": str(hermes_home),
             "PI_CODING_AGENT_DIR": str(omp_home),
             "HERMES_OMP_ACP_COMMAND": sys.executable,
             "HERMES_OMP_ACP_ARGS": shlex.join([str(_PEER), "cooperative"]),
             "HERMES_OMP_ACP_MCP_ENABLED": "false",
+            "PYTHONDONTWRITEBYTECODE": "1",
         })
-        environment.start()
-        self.addCleanup(environment.stop)
+        script = """
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
+import json
+from pathlib import Path
+import time
+from run_agent import AIAgent
 
-        from hermes_omp_acp.provider import register
-        from run_agent import AIAgent
-
-        register()
-        agent = AIAgent(
-            api_key="fixture",
-            base_url="acp://omp",
-            provider="omp-acp",
-            model="fixture/model",
-            platform="cli",
-            enabled_toolsets=[],
-            quiet_mode=True,
-            skip_context_files=True,
-            skip_memory=True,
-            skip_background_review=True,
+with closing(AIAgent(
+    api_key="fixture", base_url="acp://omp", provider="omp-acp",
+    model="fixture/model", platform="cli", cwd=str(Path.cwd()),
+    enabled_toolsets=[], quiet_mode=True, skip_context_files=True,
+    skip_memory=True, skip_background_review=True,
+)) as agent, ThreadPoolExecutor(max_workers=1) as executor:
+    future = executor.submit(agent.run_conversation, "wait until the ACP prompt is active")
+    deadline = time.monotonic() + 5
+    while not Path("cancel-peer.prompt-ready").exists():
+        if future.done():
+            raise AssertionError(f"Hermes returned before prompt dispatch: {future.result()!r}")
+        if time.monotonic() >= deadline:
+            raise TimeoutError("The ACP prompt did not start.")
+        time.sleep(0.01)
+    accepted = agent.interrupt(hard_cancel=True)
+    result = future.result(timeout=10)
+Path("interrupt-result.json").write_text(json.dumps({
+    "accepted": accepted, "completed": result["completed"],
+}))
+"""
+        process = subprocess.run(
+            [sys.executable, "-P", "-c", script],
+            cwd=self.home, env=environment, capture_output=True, text=True, timeout=30,
         )
-        executor = ThreadPoolExecutor(max_workers=1)
-        future = executor.submit(agent.run_conversation, "wait until the ACP prompt is active")
-        try:
-            self._wait_for_marker("cancel-peer.prompt-ready")
-            pid = self._peer_pid()
-            self.assertTrue(agent.interrupt(hard_cancel=True))
-            result = future.result(timeout=10)
-            from agent.conversation_loop import INTERRUPT_WAITING_FOR_MODEL_PREFIX
-            self.assertTrue(result["final_response"].startswith(INTERRUPT_WAITING_FOR_MODEL_PREFIX))
-            self.assertTrue((self.home / "cancel-peer.cancel-received").exists())
-            self._assert_reaped(pid)
-        finally:
-            agent.close()
-            executor.shutdown(wait=True, cancel_futures=True)
+        self.assertEqual(process.returncode, 0, process.stdout + process.stderr)
+        result = json.loads((self.home / "interrupt-result.json").read_text())
+        self.assertTrue(result["accepted"])
+        self.assertFalse(result["completed"])
+        self.assertEqual(
+            (self.home / "cancel-peer.prompt-count").read_text(encoding="ascii").splitlines(),
+            ["prompt"],
+        )
+        self.assertTrue((self.home / "cancel-peer.cancel-received").exists())
+        self._assert_reaped(self._peer_pid())
 
 
 if __name__ == "__main__":
