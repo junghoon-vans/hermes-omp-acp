@@ -236,6 +236,17 @@ def _as_mapping(value: Any) -> Mapping[str, Any]:
     return {}
 
 
+def _validate_protocol_version(initialize_result: Any) -> None:
+    version = _as_mapping(initialize_result).get("protocolVersion")
+    if type(version) is not int or version != PROTOCOL_VERSION:
+        raise ACPError(
+            f"Unsupported OMP ACP protocol version {version!r}; supported version is {PROTOCOL_VERSION}.",
+            phase="initialize",
+            method="initialize",
+            prompt_dispatched=False,
+        )
+
+
 def _validate_mcp_transports(mcp_servers: list[dict], initialize_result: Any) -> None:
     agent_capabilities = _as_mapping(_as_mapping(initialize_result).get("agentCapabilities"))
     mcp_capabilities = _as_mapping(agent_capabilities.get("mcpCapabilities"))
@@ -837,6 +848,7 @@ class ACPRuntime:
                             ),
                         ),
                     )
+                    _validate_protocol_version(initialize_result)
                     _validate_mcp_transports(mcp_servers, initialize_result)
                     session = await self._request(
                         state,
