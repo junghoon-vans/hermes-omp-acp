@@ -13,6 +13,8 @@ TOOL = '<tool_call>{"id":"fixture-call","type":"function","function":{"name":"lo
 
 class OutcomesPeer(Peer):
     async def prompt(self, prompt, session_id, **kwargs):
+        with (self.cwd / "prompt-receipts").open("a", encoding="ascii") as receipts:
+            receipts.write("received\n")
         if self.mode == "end_turn-tools":
             stop_reason, text = "end_turn", TOOL
         elif self.mode == "cancelled-tools":
