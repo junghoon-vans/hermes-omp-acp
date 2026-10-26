@@ -1,6 +1,6 @@
 # Hermes OMP ACP
 
-[![PyPI](https://img.shields.io/pypi/v/hermes-omp-acp)](https://pypi.org/project/hermes-omp-acp/)
+[![Latest release](https://img.shields.io/github/v/release/junghoon-vans/hermes-omp-acp)](https://github.com/junghoon-vans/hermes-omp-acp/releases/latest)
 [![Python: 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://pypi.org/project/hermes-omp-acp/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
