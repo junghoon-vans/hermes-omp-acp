@@ -20,8 +20,17 @@ def _classify_acp_error(
     body: Any = None,
     model: str | None = None,
 ) -> dict[str, Any] | None:
-    if isinstance(error, ACPCancelledError) or not isinstance(error, (ACPError, ACPTimeoutError)):
-        return None
+    # Hermes's delegated watchdog replaces the provider exception with a plain
+    # TimeoutError, retaining the original in Python's exception chain.
+    seen: set[int] = set()
+    while not isinstance(error, (ACPError, ACPTimeoutError, ACPCancelledError)):
+        if id(error) in seen:
+            return None
+        seen.add(id(error))
+        wrapped = error.__cause__ or error.__context__
+        if wrapped is None:
+            return None
+        error = wrapped
 
     context: dict[str, Any] = {
         "phase": error.phase,

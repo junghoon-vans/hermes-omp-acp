@@ -43,6 +43,8 @@ def main():
             })
         elif method == "session/new":
             _reply(request, {"sessionId": "error-peer", "configOptions": []})
+        elif method == "session/set_model":
+            _reply(request, {})
         elif method == "session/prompt":
             receipt = Path.cwd() / "error-peer.prompt-count"
             with receipt.open("a", encoding="ascii") as marker:
