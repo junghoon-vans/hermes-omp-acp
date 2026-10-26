@@ -906,30 +906,25 @@ class ACPRuntime:
                                 failure_kind="deterministic",
                             )
                         method, params = selection
-                        try:
-                            if method == "session/set_config_option":
-                                result = await self._request(
-                                    state,
-                                    method,
-                                    state.connection.set_config_option(
-                                        config_id=params["configId"],
-                                        session_id=params["sessionId"],
-                                        value=params["value"],
-                                    ),
-                                )
-                            else:
-                                result = await self._request(
-                                    state,
-                                    method,
-                                    state.connection.set_session_model(
-                                        model_id=params["modelId"],
-                                        session_id=params["sessionId"],
-                                    ),
-                                )
-                        except RuntimeError:
-                            raise
-                        except Exception as exc:
-                            raise RuntimeError(f"OMP ACP {method} failed: {exc}") from exc
+                        if method == "session/set_config_option":
+                            result = await self._request(
+                                state,
+                                method,
+                                state.connection.set_config_option(
+                                    config_id=params["configId"],
+                                    session_id=params["sessionId"],
+                                    value=params["value"],
+                                ),
+                            )
+                        else:
+                            result = await self._request(
+                                state,
+                                method,
+                                state.connection.set_session_model(
+                                    model_id=params["modelId"],
+                                    session_id=params["sessionId"],
+                                ),
+                            )
                         result_data = _as_mapping(result)
                         option = _model_config_option(result_data)
                         models = _as_mapping(result_data.get("models"))
