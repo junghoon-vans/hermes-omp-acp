@@ -77,6 +77,18 @@ For local source installation and development, see [CONTRIBUTING.md](CONTRIBUTIN
 
 See [Configuration](docs/configuration.md) for per-profile plugin settings, environment overrides, MCP forwarding, and delegation model routes. Launch options default to `omp acp`; MCP forwarding is enabled by default.
 
+## Optional web research skill
+
+The repository also ships [`omp-web-research`](skills/omp-web-research/SKILL.md):
+bounded public-web research through an existing OMP ACP delegation route, with
+primary-source reads, linked findings, and explicit uncertainty.
+
+Install it separately in the Hermes profile that delegates; enabling the
+model-provider plugin does not register skills. See
+[installation and smoke testing](docs/skills/omp-web-research.md) for the native
+`hermes skills install` command and local-checkout alternatives. The skill does
+not enforce a web-only sandbox or change approval/provider defaults.
+
 ## Documentation
 
 - [How it works](docs/implementation.md)
