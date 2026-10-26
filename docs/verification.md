@@ -2,7 +2,7 @@
 
 ## Continuous integration
 
-[CI](https://github.com/junghoon-vans/hermes-omp-acp/actions) checks both the latest stable Hermes release with OMP's npm `latest` version on Python 3.14, and the minimum supported Hermes 0.21.4 (`v2026.9.21`) with OMP 15.7.6 on Python 3.11. Both jobs use the latest Bun runtime. CI resolves each Hermes release to a commit SHA and records the source revision and executable versions in the logs.
+[CI](https://github.com/junghoon-vans/hermes-omp-acp/actions) checks both the latest stable Hermes release with OMP's npm `latest` version on Python 3.14, and the minimum supported Hermes 0.21.4 (`v2026.9.21`) with OMP 15.7.6 on Python 3.11. Each combination checks SDK 0.10.1 and the latest SDK within `>=0.10.1,<0.11`, resolving the provider's dependencies after preparing Hermes's locked environment. All jobs use the latest Bun runtime. CI resolves each Hermes release to a commit SHA and records the source revision and executable versions in the logs.
 
 CI builds and installs the wheel, then runs the ACP regression suite and native OMP integration suite. The native tests use a local OpenAI-compatible model endpoint to exercise provider discovery, model-picker availability, model selection, async responses, native file reading, MCP tool execution, and Hermes CLI output without external credentials.
 

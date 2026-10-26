@@ -101,7 +101,7 @@ jobs:
           export PYTHONPATH="$GITHUB_WORKSPACE/.hermes-upstream"
           uv run --project .hermes-upstream --no-sync python -P -m unittest discover -s tests/integration -v
       - uses: actions/upload-artifact@v4
-        if: matrix.hermes == 'latest'
+        if: matrix.hermes == 'latest' && matrix.acp_sdk_constraint == '==0.10.1'
         with:
           name: provider-distributions
           path: dist/*
