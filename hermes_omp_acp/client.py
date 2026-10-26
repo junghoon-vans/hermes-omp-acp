@@ -45,6 +45,7 @@ class OmpACPClient:
         acp_cwd: str | None = None,
         command: str | None = None,
         args: list[str] | None = None,
+        mcp_enabled: bool = True,
         **_: Any,
     ):
         self.api_key = api_key or "omp-acp"
@@ -56,6 +57,7 @@ class OmpACPClient:
             acp_cwd=acp_cwd,
             command=command,
             args=args,
+            mcp_enabled=mcp_enabled,
         )
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create_chat_completion))
 

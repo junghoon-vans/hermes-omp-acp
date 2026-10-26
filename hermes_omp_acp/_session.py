@@ -331,10 +331,14 @@ class ACPRuntime:
         acp_cwd: str | None = None,
         command: str | None = None,
         args: list[str] | None = None,
+        mcp_enabled: bool = True,
     ):
         self._acp_command = acp_command or command or _resolve_command()
-        self._acp_args = list(acp_args or args or _resolve_args())
+        self._acp_args = list(
+            acp_args if acp_args is not None else args if args is not None else _resolve_args()
+        )
         self._acp_cwd = str(Path(acp_cwd or resolve_agent_cwd()).resolve())
+        self._mcp_enabled = mcp_enabled
         self._is_closed = False
         self._active_processes: set[asyncio.subprocess.Process] = set()
         self._active_tasks: dict[asyncio.Task[Any], tuple[asyncio.AbstractEventLoop, int]] = {}
@@ -407,7 +411,7 @@ class ACPRuntime:
 
     @asynccontextmanager
     async def _session(self, *, allow_file_requests: bool = True) -> AsyncGenerator[_SessionState, None]:
-        mcp_servers = load_mcp_servers() if allow_file_requests else []
+        mcp_servers = load_mcp_servers(enabled=self._mcp_enabled) if allow_file_requests else []
         task, generation = self._begin_session()
         process: asyncio.subprocess.Process | None = None
         stderr_task: asyncio.Task[None] | None = None

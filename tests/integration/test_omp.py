@@ -4,7 +4,6 @@ import json
 import os
 from pathlib import Path
 import secrets
-import shlex
 import shutil
 import subprocess
 import sys
@@ -43,7 +42,17 @@ class NativeOmpTests(unittest.TestCase):
         (hermes_home / "config.yaml").write_text(json.dumps({
             "model": {"provider": "omp-acp", "default": "fixture/model-b",
                       "base_url": "acp://omp", "api_mode": "chat_completions"},
-            "plugins": {"enabled": ["omp-acp-provider"]},
+            "plugins": {
+                "enabled": ["omp-acp-provider"],
+                "entries": {"omp-acp-provider": {"settings": {
+                    "command": str(Path(command).resolve()),
+                    "args": [
+                        "acp", "--session-dir", str(self.root / "sessions with spaces"),
+                        "--no-title", "--no-lsp", "--no-extensions", "--no-skills", "--no-rules",
+                    ],
+                    "mcp_enabled": True,
+                }}},
+            },
             "memory": {"memory_enabled": False, "user_profile_enabled": False},
         }))
         preserve = {
@@ -56,17 +65,22 @@ class NativeOmpTests(unittest.TestCase):
         environment.update({
             "HOME": str(self.root), "HERMES_HOME": str(hermes_home),
             "PI_CODING_AGENT_DIR": str(agent_dir), "PYTHONDONTWRITEBYTECODE": "1",
-            "HERMES_OMP_ACP_COMMAND": str(Path(command).resolve()),
-            "HERMES_OMP_ACP_ARGS": shlex.join([
-                "acp", "--session-dir", str(self.root / "sessions"),
-                "--no-title", "--no-lsp", "--no-extensions", "--no-skills", "--no-rules",
-            ]),
         })
         isolation = patch.dict(os.environ, environment, clear=True)
         isolation.start()
         self.addCleanup(isolation.stop)
         self.profile = get_provider_profile("omp-acp")
         self.assertIsNotNone(self.profile, "Hermes did not discover the installed provider")
+
+    def configure(self, **settings):
+        from hermes_omp_acp.provider import register
+
+        config_path = Path(os.environ["HERMES_HOME"]) / "config.yaml"
+        config = json.loads(config_path.read_text())
+        config["plugins"]["entries"]["omp-acp-provider"]["settings"].update(settings)
+        config_path.write_text(json.dumps(config))
+        register()
+        self.profile = get_provider_profile("omp-acp")
 
     def assert_native_read_and_model_selection(self):
         self.assertFalse(self.endpoint.errors, self.endpoint.errors)
@@ -107,11 +121,13 @@ class NativeOmpTests(unittest.TestCase):
                 "args": [str(Path(__file__).with_name("token_server.py")), str(self.probe)],
             },
         }}))
-        with closing(self.profile.create_client(acp_cwd=str(self.root))) as client:
-            response = client.chat.completions.create(
-                model="fixture/model-b", timeout=40,
-                messages=[{"role": "user", "content": "Read the token through the probe MCP server."}],
-            )
+        self.configure(mcp_enabled=False)
+        with patch.dict(os.environ, {"HERMES_OMP_ACP_MCP_ENABLED": "true"}):
+            with closing(self.profile.create_client(acp_cwd=str(self.root))) as client:
+                response = client.chat.completions.create(
+                    model="fixture/model-b", timeout=40,
+                    messages=[{"role": "user", "content": "Read the token through the probe MCP server."}],
+                )
         self.assertEqual(response.choices[0].message.content, self.token)
         self.assert_native_read_and_model_selection()
 
@@ -154,12 +170,12 @@ class NativeOmpTests(unittest.TestCase):
                 "args": ["-c", f"from pathlib import Path; Path({str(marker)!r}).write_text('started')"],
             },
         }}))
-        with patch.dict(os.environ, {"HERMES_OMP_ACP_MCP_ENABLED": "false"}):
-            with closing(self.profile.create_client(acp_cwd=str(self.root))) as client:
-                response = client.chat.completions.create(
-                    model="fixture/model-b", timeout=40,
-                    messages=[{"role": "user", "content": f"Read {self.probe} and return only its contents."}],
-                )
+        self.configure(mcp_enabled=False)
+        with closing(self.profile.create_client(acp_cwd=str(self.root))) as client:
+            response = client.chat.completions.create(
+                model="fixture/model-b", timeout=40,
+                messages=[{"role": "user", "content": f"Read {self.probe} and return only its contents."}],
+            )
         self.assertEqual(response.choices[0].message.content, self.token)
         self.assertFalse(marker.exists(), "Disabling forwarding must prevent MCP server startup")
         self.assert_native_read_and_model_selection()

@@ -15,7 +15,7 @@ MCP regression coverage includes:
 - Allowlist overrides for `enabled: false`, with the denylist still preventing server startup.
 - Rejecting malformed configuration before task execution without exposing configuration values, while keeping model discovery available.
 - Rejecting an HTTP server when the ACP peer does not advertise HTTP support.
-- Disabling forwarding through `HERMES_OMP_ACP_MCP_ENABLED`, bypassing malformed configuration, then restoring validation when re-enabled on the same client.
+- Disabling forwarding through the `mcp_enabled` plugin setting or `HERMES_OMP_ACP_MCP_ENABLED`, bypassing malformed configuration, then restoring validation when overridden on the same client.
 - Rejecting an invalid toggle before task execution while keeping model discovery available.
 - Preventing configured MCP server startup when disabled while native OMP file reading still completes; existing stdio scenarios exercise forwarding enabled by default.
 
@@ -27,14 +27,14 @@ Lifecycle regressions use peer readiness gates to establish overlapping sessions
 
 ## Minimum-version boundaries
 
-The minimum versions are listed in [Requirements](../../README.md#requirements).
+The minimum versions are listed in [Requirements](../README.md#requirements).
 
 - Hermes 0.21.4 adds generic external-process provider selection and setup. Earlier direct-provider runtime support alone does not cover the model picker. Its release tag is [`v2026.9.21`](https://github.com/NousResearch/hermes-agent/releases/tag/v2026.9.21).
 - OMP 15.7.6 fixes activation of client-provided MCP tools in ACP sessions ([upstream PR #1598](https://github.com/can1357/oh-my-pi/pull/1598)). Earlier versions can register those tools without making them available to the model. The `omp acp` subcommand itself was introduced in OMP 15.0.0, but that is not sufficient for MCP support.
 - Hermes 0.21.4 declares Python `>=3.11,<3.14`; Hermes 0.22.x uses Python 3.14.
 - Stored URL-keyed MCP OAuth reuse through ACP is an optional feature requiring OMP 18.12.6 or later. It is not guaranteed by the package's 15.7.6 minimum and is not covered by the automated native stdio scenarios.
 
-CI runs both test suites against the minimum combination, including real stdio MCP tool execution and disabled-server precedence. See [Contributing](../../CONTRIBUTING.md#native-omp-integration) for the integration command and executable override.
+CI runs both test suites against the minimum combination, including real stdio MCP tool execution and disabled-server precedence. See [Contributing](../CONTRIBUTING.md#native-omp-integration) for the integration command and executable override.
 
 ## Source-reviewed MCP behavior
 
