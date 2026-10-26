@@ -41,6 +41,139 @@ from .mcp import load_mcp_servers
 
 # Command catalogs and tool results can exceed asyncio's default 64 KiB line limit.
 DEFAULT_STREAM_LIMIT_BYTES = 16 * 1024 * 1024
+# SDK 0.9 closes stdin before its process wait; its drain/wait_closed steps are
+# unbounded, so cap the whole manager exit and retain time for its normal grace.
+_SHUTDOWN_TIMEOUT = 2.0
+_STDIN_CLOSE_TIMEOUT = 0.5
+_TERMINATE_TIMEOUT = 0.5
+_PROCESS_REAP_TIMEOUT = 1.0
+_MANAGER_SETTLE_TIMEOUT = 0.5
+
+
+async def _terminate_and_reap(process: asyncio.subprocess.Process) -> None:
+    wait_task = asyncio.create_task(process.wait())
+    if process.returncode is None:
+        with suppress(ProcessLookupError, OSError):
+            process.terminate()
+    try:
+        await asyncio.wait_for(asyncio.shield(wait_task), timeout=_TERMINATE_TIMEOUT)
+    except TimeoutError:
+        ACPRuntime._kill_process(process)
+        try:
+            await asyncio.wait_for(asyncio.shield(wait_task), timeout=_PROCESS_REAP_TIMEOUT)
+        except TimeoutError as exc:
+            raise RuntimeError("OMP ACP process did not exit after kill.") from exc
+    finally:
+        if not wait_task.done():
+            wait_task.cancel()
+            await asyncio.gather(wait_task, return_exceptions=True)
+
+
+async def _exit_agent_process_manager(
+    manager: Any,
+    process: asyncio.subprocess.Process,
+    exc_info: tuple[type[BaseException] | None, BaseException | None, Any],
+    shutdown_timeout: float,
+) -> BaseException | None:
+    exit_task = asyncio.create_task(manager.__aexit__(*exc_info))
+    cleanup_error: BaseException | None = None
+    done, _ = await asyncio.wait(
+        (exit_task,),
+        timeout=shutdown_timeout + _STDIN_CLOSE_TIMEOUT,
+    )
+    if not done:
+        try:
+            await _terminate_and_reap(process)
+        except BaseException as exc:
+            cleanup_error = exc
+        done, _ = await asyncio.wait((exit_task,), timeout=_MANAGER_SETTLE_TIMEOUT)
+    if not done:
+        exit_task.cancel()
+        done, _ = await asyncio.wait((exit_task,), timeout=_MANAGER_SETTLE_TIMEOUT)
+        if not done and cleanup_error is None:
+            cleanup_error = RuntimeError("OMP ACP SDK process cleanup did not settle.")
+    if done:
+        if exit_task.cancelled():
+            if cleanup_error is None:
+                cleanup_error = RuntimeError("OMP ACP SDK process cleanup was cancelled.")
+        else:
+            try:
+                exit_task.result()
+            except BaseException as exc:
+                if cleanup_error is None:
+                    cleanup_error = exc
+    if cleanup_error is not None and process.returncode is None:
+        try:
+            await _terminate_and_reap(process)
+        except BaseException as exc:
+            if hasattr(cleanup_error, "add_note"):
+                cleanup_error.add_note(
+                    f"Process escalation also failed ({type(exc).__name__}); cleanup error preserved."
+                )
+    return cleanup_error
+
+
+async def _await_agent_process_exit(
+    manager: Any,
+    process: asyncio.subprocess.Process,
+    exc_info: tuple[type[BaseException] | None, BaseException | None, Any],
+    shutdown_timeout: float,
+) -> tuple[BaseException | None, bool]:
+    async def finish() -> BaseException | None:
+        try:
+            return await _exit_agent_process_manager(manager, process, exc_info, shutdown_timeout)
+        except BaseException as exc:
+            return exc
+
+    finish_task = asyncio.create_task(finish())
+    owner = asyncio.current_task()
+    interrupted = False
+    while not finish_task.done():
+        try:
+            await asyncio.shield(finish_task)
+        except asyncio.CancelledError:
+            interrupted = True
+            if owner is not None:
+                owner.uncancel()
+        except BaseException:
+            break
+    return finish_task.result(), interrupted
+
+
+@asynccontextmanager
+async def _bounded_spawn_agent_process(*args: Any, **kwargs: Any) -> AsyncGenerator[Any, None]:
+    """Keep the public SDK connection manager while bounding its subprocess teardown."""
+    transport_kwargs = dict(kwargs.get("transport_kwargs") or {})
+    shutdown_timeout = float(transport_kwargs.get("shutdown_timeout", _SHUTDOWN_TIMEOUT))
+    manager = spawn_agent_process(*args, **kwargs)
+    connection, process = await manager.__aenter__()
+    process = cast(asyncio.subprocess.Process, process)
+    try:
+        yield connection, process
+    except BaseException as primary:
+        cleanup_error, _ = await _await_agent_process_exit(
+            manager, process, (type(primary), primary, primary.__traceback__), shutdown_timeout,
+        )
+        if cleanup_error is not None and hasattr(primary, "add_note"):
+            primary.add_note(
+                f"OMP ACP cleanup also failed ({type(cleanup_error).__name__}); original failure preserved."
+            )
+        raise
+    else:
+        cleanup_error, interrupted = await _await_agent_process_exit(
+            manager, process, (None, None, None), shutdown_timeout,
+        )
+        if cleanup_error is not None:
+            raise cleanup_error
+        if interrupted:
+            raise asyncio.CancelledError
+
+
+async def _wait_for_stderr(task: asyncio.Task[None] | None, timeout: float = 0.5) -> None:
+    if task is None:
+        return
+    with suppress(asyncio.CancelledError, Exception):
+        await asyncio.wait_for(asyncio.shield(task), timeout=timeout)
 
 
 def validate_stream_limit_bytes(value: Any) -> int:
@@ -445,7 +578,7 @@ class ACPRuntime:
         callbacks = _SessionCallbacks(self._acp_cwd, allow_file_requests=allow_file_requests)
         try:
             try:
-                async with spawn_agent_process(
+                async with _bounded_spawn_agent_process(
                     callbacks,
                     self._acp_command,
                     *self._acp_args,
@@ -453,7 +586,7 @@ class ACPRuntime:
                     cwd=self._acp_cwd,
                     transport_kwargs={
                         "stderr": aio_subprocess.PIPE,
-                        "shutdown_timeout": 2.0,
+                        "shutdown_timeout": _SHUTDOWN_TIMEOUT,
                         "limit": self._stream_limit_bytes,
                     },
                     use_unstable_protocol=True,
