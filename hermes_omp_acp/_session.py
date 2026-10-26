@@ -49,6 +49,8 @@ _STDIN_CLOSE_TIMEOUT = 0.5
 _TERMINATE_TIMEOUT = 0.5
 _PROCESS_REAP_TIMEOUT = 1.0
 _MANAGER_SETTLE_TIMEOUT = 0.5
+_CANCEL_SEND_TIMEOUT = 0.25
+_CANCEL_CONFIRM_TIMEOUT = 0.5
 
 
 async def _terminate_and_reap(process: asyncio.subprocess.Process) -> None:
@@ -420,6 +422,14 @@ class _RequestContext:
     phase: str = "startup"
     method: str | None = None
     prompt_dispatched: bool | None = False
+    loop: asyncio.AbstractEventLoop | None = None
+    task: asyncio.Task[Any] | None = None
+    process: asyncio.subprocess.Process | None = None
+    connection: Any = None
+    session_id: str | None = None
+    prompt_task: asyncio.Task[Any] | None = None
+    cancel_task: asyncio.Task[Any] | None = None
+    cancel_requested: bool = False
 
 
 class _SessionCallbacks:
@@ -549,8 +559,10 @@ class ACPRuntime:
         self._mcp_enabled = mcp_enabled
         self._is_closed = False
         self._active_processes: set[asyncio.subprocess.Process] = set()
-        self._active_tasks: dict[asyncio.Task[Any], tuple[asyncio.AbstractEventLoop, int]] = {}
-        self._session_processes: dict[asyncio.Task[Any], asyncio.subprocess.Process] = {}
+        self._active_tasks: dict[
+            asyncio.Task[Any],
+            tuple[asyncio.AbstractEventLoop, int, _RequestContext],
+        ] = {}
         self._active_lock = threading.Lock()
         self._generation = 0
 
@@ -563,29 +575,42 @@ class ACPRuntime:
         with suppress(ProcessLookupError, OSError):
             process.kill()
 
-    def _begin_session(self) -> tuple[asyncio.Task[Any], int]:
+    def _begin_session(self, request_context: _RequestContext) -> tuple[asyncio.Task[Any], int]:
         task = asyncio.current_task()
         if task is None:
             raise RuntimeError("OMP ACP sessions require an asyncio task.")
         loop = asyncio.get_running_loop()
+        request_context.loop = loop
+        request_context.task = task
         with self._active_lock:
             generation = self._generation
-            self._active_tasks[task] = (loop, generation)
+            self._active_tasks[task] = (loop, generation, request_context)
         return task, generation
 
-    def _register_process(self, process: asyncio.subprocess.Process, generation: int) -> None:
+    def _register_process(
+        self,
+        process: asyncio.subprocess.Process,
+        generation: int,
+        request_context: _RequestContext,
+    ) -> None:
         task = asyncio.current_task()
         if task is None:
             self._kill_process(process)
             raise RuntimeError("OMP ACP sessions require an asyncio task.")
         with self._active_lock:
             stale = generation != self._generation
-            if not stale:
-                self._active_processes.add(process)
-                self._session_processes[task] = process
+            self._active_processes.add(process)
+            self._active_tasks[task] = (
+                request_context.loop or asyncio.get_running_loop(),
+                generation,
+                request_context,
+            )
+            request_context.process = process
+            if stale:
+                request_context.cancel_requested = True
+            else:
                 self._is_closed = False
-        if stale:
-            self._kill_process(process)
+        if stale or request_context.cancel_requested:
             raise asyncio.CancelledError
 
     def _finish_session(self, task: asyncio.Task[Any], process: asyncio.subprocess.Process | None) -> None:
@@ -593,9 +618,75 @@ class ACPRuntime:
             if process is not None:
                 self._active_processes.discard(process)
             self._active_tasks.pop(task, None)
-            self._session_processes.pop(task, None)
             if not self._active_processes:
                 self._is_closed = True
+
+    def _request_cancel(self, context: _RequestContext) -> None:
+        if context.cancel_requested:
+            return
+        context.cancel_requested = True
+        prompt_task = context.prompt_task
+        if (
+            context.phase == "prompt"
+            and context.session_id
+            and context.connection is not None
+            and prompt_task is not None
+            and not prompt_task.done()
+        ):
+            context.cancel_task = asyncio.create_task(self._cancel_prompt(context))
+            return
+        if context.process is None:
+            # Do not cancel SDK __aenter__ before it returns its process handle;
+            # _register_process observes this flag and exits through bounded cleanup.
+            return
+        self._cancel_owner_task(context)
+
+    async def _cancel_prompt(self, context: _RequestContext) -> None:
+        try:
+            await asyncio.wait_for(
+                context.connection.cancel(context.session_id),
+                timeout=_CANCEL_SEND_TIMEOUT,
+            )
+        except Exception:
+            self._cancel_owner_task(context)
+            return
+
+        prompt_task = context.prompt_task
+        if prompt_task is None:
+            self._cancel_owner_task(context)
+            return
+        try:
+            await asyncio.wait_for(asyncio.shield(prompt_task), timeout=_CANCEL_CONFIRM_TIMEOUT)
+        except TimeoutError:
+            self._cancel_owner_task(context)
+        except asyncio.CancelledError:
+            self._cancel_owner_task(context)
+        except Exception:
+            # A terminal RPC error also settles the original prompt; _request
+            # converts it to the interrupted outcome when cancellation is set.
+            return
+
+    @staticmethod
+    def _cancel_owner_task(context: _RequestContext) -> None:
+        task = context.task
+        if task is not None and not task.done():
+            task.cancel()
+
+    def _schedule_cancellation(
+        self,
+        requests: tuple[tuple[asyncio.AbstractEventLoop, _RequestContext], ...],
+    ) -> None:
+        for loop, context in requests:
+            if loop.is_closed():
+                continue
+            with suppress(RuntimeError):
+                loop.call_soon_threadsafe(self._request_cancel, context)
+
+    def cancel(self) -> None:
+        """Cancel all active requests owned by this client; request timeouts stay local."""
+        with self._active_lock:
+            requests = tuple((loop, request) for loop, _, request in self._active_tasks.values())
+        self._schedule_cancellation(requests)
 
     async def _request(self, state: _SessionState, method: str, awaitable: Any) -> Any:
         context = state.request_context
@@ -604,14 +695,44 @@ class ACPRuntime:
         if method == "session/prompt":
             context.prompt_dispatched = None
         response_task = asyncio.ensure_future(awaitable)
+        if method == "session/prompt":
+            context.prompt_task = response_task
         exit_task = asyncio.create_task(state.process.wait())
         try:
             done, _ = await asyncio.wait((response_task, exit_task), return_when=asyncio.FIRST_COMPLETED)
             if response_task in done:
-                return response_task.result()
+                result = response_task.result()
+                if context.cancel_requested and method == "session/prompt":
+                    raise ACPCancelledError(
+                        "OMP ACP prompt was interrupted.",
+                        phase=context.phase,
+                        method=method,
+                        prompt_dispatched=context.prompt_dispatched,
+                    )
+                return result
             await _wait_for_stderr(state.stderr_task)
             raise _process_exit_error(state.process, state.stderr_tail)
+        except asyncio.CancelledError as exc:
+            if context.cancel_requested:
+                raise ACPCancelledError(
+                    "OMP ACP request was interrupted.",
+                    phase=context.phase,
+                    method=method,
+                    prompt_dispatched=context.prompt_dispatched,
+                    cause=exc,
+                ) from exc
+            raise
         except Exception as exc:
+            if context.cancel_requested and method == "session/prompt":
+                raise ACPCancelledError(
+                    "OMP ACP prompt was interrupted.",
+                    phase=context.phase,
+                    method=method,
+                    prompt_dispatched=context.prompt_dispatched,
+                    cause=exc,
+                ) from exc
+            if isinstance(exc, ACPCancelledError):
+                raise
             rpc_code = getattr(exc, "code", None)
             if not isinstance(rpc_code, (int, str)) or isinstance(rpc_code, bool):
                 rpc_code = None
@@ -631,6 +752,8 @@ class ACPRuntime:
                 cause=exc,
             ) from exc
         finally:
+            if context.prompt_task is response_task:
+                context.prompt_task = None
             for pending in (response_task, exit_task):
                 if not pending.done():
                     pending.cancel()
@@ -655,7 +778,7 @@ class ACPRuntime:
                 failure_kind="deterministic",
                 cause=exc,
             ) from exc
-        task, generation = self._begin_session()
+        task, generation = self._begin_session(request_context)
         process: asyncio.subprocess.Process | None = None
         stderr_task: asyncio.Task[None] | None = None
         stderr_tail: deque[str] = deque(maxlen=40)
@@ -681,7 +804,8 @@ class ACPRuntime:
                     observers=[callbacks.observe],
                 ) as (connection, spawned_process):
                     process = cast(asyncio.subprocess.Process, spawned_process)
-                    self._register_process(process, generation)
+                    request_context.connection = connection
+                    self._register_process(process, generation, request_context)
                     if process.stderr is not None:
                         stderr_task = asyncio.create_task(_drain_stderr(process.stderr, stderr_tail))
                     state = _SessionState(
@@ -724,6 +848,7 @@ class ACPRuntime:
                             failure_kind="deterministic",
                         )
                     state.session = session_data
+                    request_context.session_id = str(session_data["sessionId"])
                     yield state
             except FileNotFoundError as exc:
                 raise ACPError(
@@ -746,6 +871,10 @@ class ACPRuntime:
                     cause=exc,
                 ) from exc
         finally:
+            cancel_task = request_context.cancel_task
+            if cancel_task is not None and not cancel_task.done():
+                cancel_task.cancel()
+                await asyncio.gather(cancel_task, return_exceptions=True)
             self._finish_session(task, process)
             await _wait_for_stderr(stderr_task)
             if stderr_task is not None and not stderr_task.done():
@@ -818,7 +947,25 @@ class ACPRuntime:
                         ),
                     )
                     return "".join(state.callbacks.text_parts), "".join(state.callbacks.reasoning_parts)
+        except asyncio.CancelledError as exc:
+            if request_context.cancel_requested:
+                raise ACPCancelledError(
+                    "OMP ACP request was interrupted.",
+                    phase=request_context.phase,
+                    method=request_context.method,
+                    prompt_dispatched=request_context.prompt_dispatched,
+                    cause=exc,
+                ) from exc
+            raise
         except TimeoutError as exc:
+            if request_context.cancel_requested:
+                raise ACPCancelledError(
+                    "OMP ACP request was interrupted.",
+                    phase=request_context.phase,
+                    method=request_context.method,
+                    prompt_dispatched=request_context.prompt_dispatched,
+                    cause=exc,
+                ) from exc
             failure_kind = (
                 "outcome_unknown"
                 if request_context.prompt_dispatched is not False
@@ -844,16 +991,6 @@ class ACPRuntime:
     def close(self) -> None:
         with self._active_lock:
             self._generation += 1
-            processes = tuple(self._active_processes)
-            tasks = tuple(
-                (task, loop)
-                for task, (loop, _) in self._active_tasks.items()
-                if task in self._session_processes
-            )
+            requests = tuple((loop, request) for loop, _, request in self._active_tasks.values())
             self._is_closed = True
-        for process in processes:
-            self._kill_process(process)
-        for task, loop in tasks:
-            if not task.done() and task.cancelling() == 0:
-                with suppress(RuntimeError):
-                    loop.call_soon_threadsafe(task.cancel)
+        self._schedule_cancellation(requests)
