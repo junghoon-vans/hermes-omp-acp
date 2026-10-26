@@ -17,8 +17,24 @@ Repository = "https://github.com/junghoon-vans/hermes-omp-acp"
 
 [project.entry-points."hermes_agent.plugins"]
 omp-acp-provider = "hermes_omp_acp.provider:register"
+omp-task = "hermes_omp_acp.tool_plugin"
 
 [tool.hatch.build.targets.wheel]
 packages = ["hermes_omp_acp"]
 
 [tool.hatch.metadata.hooks.custom]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/hermes_omp_acp",
+    "/tests",
+    "/docs",
+    "/.github",
+    "/__init__.py",
+    "/plugin.yaml",
+    "/plugins/omp-task",
+    "/pyproject.toml",
+    "/README.md",
+    "/CONTRIBUTING.md",
+    "/LICENSE",
+]

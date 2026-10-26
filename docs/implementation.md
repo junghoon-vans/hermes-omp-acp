@@ -1,9 +1,10 @@
 # How it works
 
 - The `omp-acp-provider` plugin registers the `omp-acp` model provider through Hermes's external-process model-provider interface.
-- Launches `omp acp` and discovers its available models through ACP.
-- Implements `OmpACPClient` independently using the official `agent-client-protocol` Python SDK for subprocess transport and JSON-RPC.
-- Reuses Hermes's generic OpenAI completion/tool-call bridge, subprocess environment handling, filesystem safety checks, secret redaction, and logical workspace resolution. It does not import or subclass the Copilot ACP client.
+- The separate `omp-task` general plugin registers the `omp_task` Hermes tool; it is not coupled to model-provider routing or Advanced Delegation.
+- The provider launches `omp acp` and discovers its available models through ACP.
+- Its `OmpACPClient` independently implements the official `agent-client-protocol` Python SDK for subprocess transport and JSON-RPC.
+- The provider reuses Hermes's generic OpenAI completion/tool-call bridge, subprocess environment handling, filesystem safety checks, secret redaction, and logical workspace resolution. It does not import or subclass the Copilot ACP client.
 
 ## Module responsibilities
 
@@ -11,16 +12,18 @@
 - [`_bridge.py`](../hermes_omp_acp/_bridge.py) converts messages and tool schemas into prompts, then converts text and reasoning into completion objects and buffered stream chunks.
 - [`_session.py`](../hermes_omp_acp/_session.py) owns ACP negotiation, callbacks and filesystem policy, subprocesses, stderr, deadlines, and cancellation.
 - [`mcp.py`](../hermes_omp_acp/mcp.py) translates the global OMP MCP configuration into ACP server definitions; `_session.py` sends them when creating a completion session.
+- [`tool_plugin.py`](../hermes_omp_acp/tool_plugin.py) exposes the general-plugin `register(ctx)` entry point and registers `omp_task`.
+- [`tool.py`](../hermes_omp_acp/tool.py) runs each task with a scoped interruption control; [`workspaces.py`](../hermes_omp_acp/workspaces.py) retains one isolated Git worktree per task ID.
 
-The client calls the runtime's `list_models`, `run`, and `close` interfaces. SDK connections, child processes, callback buffers, and stderr tasks stay inside the runtime rather than crossing the interface as a tuple. A single runtime owns the active-session tracking for each client.
+The client calls the runtime's `list_models`, `run`, and `close` interfaces. SDK connections, child processes, callback buffers, and stderr tasks stay inside the runtime rather than crossing the interface as a tuple. Each completion owns a separate runtime; model discovery uses the client's discovery runtime.
 
-## Runtime behavior
+## Model-provider runtime behavior
 
 Each completion opens a new OMP process and ACP session, sending the conversation history with the request. Responses are buffered before being returned as completion objects or stream chunks.
 
 When a model is explicitly requested, the client selects it in that same session before sending the prompt, using `session/set_config_option` or the legacy `session/set_model` method. Unavailable models, selection errors, and returned model mismatches abort the completion instead of falling back to OMP's default. When no current model is returned, the successful selection RPC is the acknowledgement. Omitting the model allows the session default.
 
-Synchronous completions run the SDK on a local event loop; asynchronous completions use the caller's event loop. Model discovery retains Hermes's synchronous interface and uses a worker thread when called from an existing event loop. That worker preserves the caller's context.
+Synchronous completions run the SDK on a local event loop; asynchronous completions run it on an owned worker thread and await its result without blocking the caller's loop. Cancellation closes only that request and joins its worker before propagating, including repeated cancellation. Model discovery retains Hermes's synchronous interface and uses a worker thread when called from an existing event loop. Workers preserve the caller's context.
 
 Incoming message and reasoning chunks are collected in wire order before the prompt response is returned, independently of the SDK's background callback scheduling. Streaming remains buffered rather than live.
 
@@ -31,6 +34,20 @@ The client uses an explicit session workspace when supplied, otherwise Hermes's 
 Native ACP permission requests are cancelled by the plugin's own callback, preserving the previous behavior. See [Known limitations](limitations.md#native-acp-approval-requests) for the permission and filesystem policies.
 
 Compatibility still depends on Hermes's shared provider, bridge, environment, and safety interfaces, plus the SDK version range declared in [package metadata](../pyproject.toml). It no longer depends on the internal `CopilotACPClient` interface. See [Verification](verification.md) for the exercised combinations and scenarios.
+
+## Plugin discovery and OMP task lifecycle
+
+The distribution exposes two entry points in Hermes's `hermes_agent.plugins` group. `omp-acp-provider` remains `hermes_omp_acp.provider:register`, a zero-argument hook discovered by the provider registry. `omp-task` targets the `hermes_omp_acp.tool_plugin` module; Hermes's general `PluginManager` imports that module and calls its `register(ctx)`. Hermes recognizes the provider module as `kind: model-provider` and leaves its registration to provider discovery rather than treating the zero-argument hook as a general plugin. Both IDs are opt-in and can be enabled independently.
+
+The `omp_task` tool's public arguments, JSON result fields, and examples are documented in [Tool arguments and results](configuration.md#tool-arguments-and-results). Its handler uses the profile-aware `plugin_data_dir("omp-task") / "workspaces"` location, yielding `<active Hermes home>/plugin-data/omp-task/workspaces/<task_id>/tree`; this is persistent profile data, not plugin installation state. A new workspace is a Git worktree based on the source repository's current `HEAD`, on branch `hermes/omp-<task_id>`. The workspace and files are retained after success, failure, or cancellation, with no automatic pruning. Reusing an ID requires the same canonical repository; it reuses that worktree, not ACP history. Every invocation creates a fresh OMP process and ACP session.
+
+`WorkspaceStore.acquire` validates the repository root and holds an exclusive, non-blocking `flock` for that task ID across workspace setup and ACP execution. A simultaneous call with the same ID fails instead of waiting. The worker releases the lock when its workspace context exits; a different task ID uses a different lock and worktree.
+
+The tool handler is synchronous on Hermes's dispatch thread. It polls `tools.interrupt.is_interrupted()`, which checks that thread and Hermes's optional `acting_for_tid` context; `InterruptControlMixin.interrupt(hard_cancel=True)` signals registered tool workers. The handler runs ACP on its own worker and event loop, closes only its owned runtime on interruption, and joins that worker before returning. It does not rely on cancelling the future returned by Hermes's async registry bridge, which would leave a running handler alive.
+
+If interrupted during Git workspace setup, the tool cannot cancel the synchronous Git command already in progress. It waits for setup to return, then checks the interrupt before launching ACP and drains its worker before releasing the lock. During ACP execution, runtime closure kills only that invocation's registered child process and cancels its active request. The `timeout_seconds` budget begins after workspace acquisition and limits ACP session startup/initialization, model selection, and prompting. It is not a hard total wall-clock deadline: repository validation/Git setup are outside the budget, and child/worker shutdown and lock drain can extend total time.
+
+Hermes's executor can stop awaiting the handler after its own interrupt grace period; the tool cannot extend that upstream deadline. If the executor stops awaiting first, the independently owned worker still has to drain before its lock is released. Interruption does not cancel Git setup already running or any unrelated task or process.
 
 ## MCP configuration flow
 

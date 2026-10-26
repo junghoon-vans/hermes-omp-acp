@@ -4,7 +4,7 @@
 
 [CI](https://github.com/junghoon-vans/hermes-omp-acp/actions) checks both the latest stable Hermes release with OMP's npm `latest` version on Python 3.14, and the minimum supported Hermes 0.21.4 (`v2026.9.21`) with OMP 15.7.6 on Python 3.11. Both jobs use the latest Bun runtime. CI resolves each Hermes release to a commit SHA and records the source revision and executable versions in the logs.
 
-CI builds and installs the wheel, then runs the ACP regression suite and native OMP integration suite. The native tests use a local OpenAI-compatible model endpoint to exercise provider discovery, model-picker availability, model selection, async responses, native file reading, MCP tool execution, and Hermes CLI output without external credentials.
+CI builds and installs the wheel, then runs the ACP regression suite and native OMP integration suite. The native tests use a local OpenAI-compatible model endpoint to exercise provider discovery, model-picker availability, model selection, async responses, native file reading, MCP tool execution, Hermes CLI output, and independent `omp_task` worktree edits/reuse/concurrency without external credentials. No official Advanced Delegation installation or `model_map` configuration is needed.
 
 Each integration scenario uses temporary Hermes and OMP homes. The model endpoint requests a file read or a stdio MCP tool call, then produces its response from the fresh token returned by actual OMP tool execution. The token is not supplied in the initial prompt.
 
@@ -25,24 +25,43 @@ The standalone client's ACP peer regressions also exercise permission cancellati
 
 Lifecycle regressions use peer readiness gates to establish overlapping sessions before releasing or cancelling them. They verify that timeout or caller cancellation reaps only the affected child while a sibling still completes, and that `close()` stops and reaps all active children. Additional cases cover one timeout budget across initialization/session creation/model selection, and ordered text/reasoning bursts followed immediately by the prompt response. The tests use the public provider/client interface, not private module names or transport mocks.
 
-## Package metadata and release checks
+The `omp_task` suite exercises retained worktree reuse, fresh ACP sessions on reuse, and task-level interruption through Hermes's real sequential tool executor and registry. It verifies that the stopped task's subprocess is reaped before its workspace becomes reusable and that a concurrent independent task remains active.
+
+### Independent-task review baseline
+
+The local review record for implementation commit [`ffe0382c94535ffbca327d66624e97ede964ee5e`](https://github.com/junghoon-vans/hermes-omp-acp/commit/ffe0382c94535ffbca327d66624e97ede964ee5e) (2026-10-26, Apple Silicon macOS) reports:
+
+| Hermes | Python | OMP | Unit/artifact suite | Native scenarios |
+| --- | --- | --- | --- | --- |
+| 0.21.4 | 3.11.15 | 15.7.6 | 57 passed | 8 passed |
+| 0.22.5 | 3.14.6 | 18.12.6 | 57 passed | 8 passed |
+
+These native runs deliberately excluded the CLI scenario that starts gateway services; the exclusion was not a unittest skip. They used a deterministic localhost model endpoint, not paid APIs. The initial minimum-version concurrency run failed during simultaneous initialization of a fresh OMP SQLite auth store; the final run initialized the disposable OMP profile with model discovery first. There is no plugin retry or cross-task serialization workaround; see [Concurrent OMP startup](limitations.md#concurrent-omp-startup).
+
+The same record reports wheel/sdist strict Twine checks, installed-wheel discovery and dispatch on both Hermes versions, and five installed-sdist packaging checks. Treat these as the recorded implementation baseline, not as a rerun of all native scenarios for a later documentation-only change. Current PR checks are separate evidence and must be read at the PR's current head.
+
+## Package metadata and entrypoint checks
 
 The version and description come from [`plugin.yaml`](../plugin.yaml), not static fields in `pyproject.toml`. See [Build the distribution](../CONTRIBUTING.md#build-the-distribution) for the metadata hook and local build/check commands.
 
 Local packaging checks for release 0.2.0 built an sdist and then a wheel from that sdist. Both artifacts passed `twine check --strict`. A disposable environment installation confirmed that the wheel's version and Summary match the manifest and that PyYAML is not a runtime requirement.
 
-The release preparation script accepted `v0.2.0` and rejected the mismatched tags `v0.1.0` and `v0.2.0rc1`, as well as the malformed tag `0.2.0`. Running it with a temporary GitHub output file also succeeded. These checks did not publish to TestPyPI or PyPI and do not replace installed-package validation in Hermes.
+The opt-in installed-wheel check in [`tests/test_packaging.py`](../tests/test_packaging.py) uses the active Hermes runtime to run its actual general plugin loader and provider registry. It checks that the module entry point registers `omp_task`, while the unchanged provider entry point remains routed through provider discovery. Run it as described in [Contributing](../CONTRIBUTING.md#installed-wheel-plugin-discovery) after building and installing the artifact in each Hermes runtime under review; it is not a source-only metadata check.
+
+The installed-artifact subprocess sets its temporary `HERMES_HOME`, then initializes `hermes_cli.config` before loading either entry point or creating the general `PluginManager`. This matches both supported Hermes CLI bootstraps, which import config before plugin discovery. An upstream embedding-order limitation remains: importing `hermes_cli.plugins` before `hermes_cli.config` finishes can make config initialization call provider discovery while `hermes_cli.plugins` is only partially initialized. The provider scan catches the resulting missing `_get_enabled_plugins` import and marks its one-time discovery complete without registering this entry point. Hermes's CLI avoids that order; direct embedders should initialize config before importing the plugin manager. The package does not work around this Hermes behavior by manually invoking the provider hook.
+
 
 ## Minimum-version boundaries
 
 The minimum versions are listed in [Requirements](../README.md#requirements).
 
-- Hermes 0.21.4 adds generic external-process provider selection and setup. Earlier direct-provider runtime support alone does not cover the model picker. Its release tag is [`v2026.9.21`](https://github.com/NousResearch/hermes-agent/releases/tag/v2026.9.21).
+- Hermes **0.21.4** (`v2026.9.21`, source commit `d337b736aa1e8ebecfab043842d13e4a2d2f48a3`) supports both generic plugin entry points and external-process provider discovery. Its general loader calls `register(ctx)` on a loaded module; provider discovery classifies provider modules by source markers and routes them away from the generic loader, then invokes their zero-argument registration hooks. The locally installed Hermes 0.22.5 runtime (`bf0203a7`, 2026.9.24) likewise classified the installed provider entry point as `kind: model-provider`.
 - OMP 15.7.6 fixes activation of client-provided MCP tools in ACP sessions ([upstream PR #1598](https://github.com/can1357/oh-my-pi/pull/1598)). Earlier versions can register those tools without making them available to the model. The `omp acp` subcommand itself was introduced in OMP 15.0.0, but that is not sufficient for MCP support.
 - Hermes 0.21.4 declares Python `>=3.11,<3.14`; Hermes 0.22.x uses Python 3.14.
 - Stored URL-keyed MCP OAuth reuse through ACP is an optional feature requiring OMP 18.12.6 or later. It is not guaranteed by the package's 15.7.6 minimum and is not covered by the automated native stdio scenarios.
 
 CI runs both test suites against the minimum combination, including real stdio MCP tool execution and disabled-server precedence. See [Contributing](../CONTRIBUTING.md#native-omp-integration) for the integration command and executable override.
+
 
 ## Source-reviewed MCP behavior
 

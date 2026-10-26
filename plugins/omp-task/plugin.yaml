@@ -1,0 +1,7 @@
+name: omp-task
+kind: standalone
+version: 0.2.0
+requires_hermes: ">=0.21.4"
+description: Run OMP tasks in isolated, retained Git worktrees.
+python_dependencies:
+  - hermes-omp-acp>=0.2.0

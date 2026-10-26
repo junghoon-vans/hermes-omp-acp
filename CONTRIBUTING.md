@@ -1,16 +1,16 @@
 # Contributing
 
-Run development commands from the repository root. This repository builds one Python distribution from the root package.
+Run development commands from the repository root. This repository builds one Python distribution that exports the `omp-acp-provider` model-provider plugin and the separate `omp-task` general tool plugin.
 
 ## Package boundary and Python environment
 
-The root package builds `hermes-omp-acp`, requires Python 3.11 or later, and declares `agent-client-protocol>=0.9.0,<0.10.0` as its transport dependency. It runs inside a Hermes environment and reuses Hermes's shared provider, completion bridge, environment, and safety interfaces, not its Copilot ACP client. Use a Python version supported by the Hermes release being checked.
+The root package builds `hermes-omp-acp`, requires Python 3.11 or later, and declares `agent-client-protocol>=0.9.0,<0.10.0` as its transport dependency. It runs inside Hermes and reuses Hermes's provider, completion bridge, environment, safety, and plugin APIs, not its Copilot ACP client.
 
 For supported user-facing minimums, see the [requirements](README.md#requirements).
 
-## Provider unit tests
+## Provider and task-tool unit tests
 
-Run provider tests with the Python environment for a supported Hermes checkout. The commands below install Hermes's `acp` extra, which supplies the SDK used by both the provider and the real ACP test peer; the subsequent `--no-deps` installation therefore has its transport dependency available. From the repository root, set `HERMES_SOURCE` to a Hermes source checkout and use its `uv` environment:
+Run unit tests with the Python environment for a supported Hermes checkout. The commands below install Hermes's `acp` extra, which supplies the SDK used by the provider, task tool, and real ACP test peers; the subsequent `--no-deps` installation therefore has its transport dependency available. From the repository root, set `HERMES_SOURCE` to a Hermes source checkout and use its `uv` environment:
 
 ```sh
 uv sync --project "$HERMES_SOURCE" --extra acp --locked --no-install-project
@@ -19,7 +19,7 @@ export PYTHONPATH="$HERMES_SOURCE"
 uv run --project "$HERMES_SOURCE" --no-sync python -P -m unittest discover -s tests -v
 ```
 
-These deterministic tests exercise model discovery and strict selection, synchronous and asynchronous callers, ordered buffered streaming, readiness-gated concurrent sessions, timeout/cancellation/close with child-process reaping, permission cancellation, safe file write/read-back, filesystem restrictions/redaction, reasoning/tool-call conversion, and missing or exited executables. They need no model credentials and use the public provider/client interface rather than private module imports. Provider minimums are Hermes 0.21.4 and OMP 15.7.6, with Python matching Hermes.
+These deterministic tests cover provider model discovery/selection and ACP requests, plus task workspace creation/reuse, fresh sessions, isolated interruption, child reaping, and registration through Hermes's real tool registry/dispatcher. They need no model credentials; ACP scenarios use local peers.
 
 ## Native OMP integration
 
@@ -29,11 +29,30 @@ With a real OMP installation on `PATH`, run the native integration suite in the 
 uv run --project "$HERMES_SOURCE" --no-sync python -P -m unittest discover -s tests/integration -v
 ```
 
-Set `OMP_INTEGRATION_COMMAND` to an absolute executable path to test a specific OMP installation. Each scenario uses temporary Hermes and OMP homes, a local OpenAI-compatible model endpoint, and a test file. It exercises provider discovery and model selection, async responses, native file reading, and Hermes CLI output without external credentials. The model response is based on the value returned by OMP's actual file-read tool.
+Set `OMP_INTEGRATION_COMMAND` to an absolute executable path to test a specific OMP installation. Each scenario uses temporary Hermes and OMP homes and a local OpenAI-compatible model endpoint without external credentials. Provider scenarios exercise discovery, model selection, async responses, native file reading, and Hermes CLI output. Independent `omp_task` scenarios exercise native read/write/read inside a retained worktree, source-checkout preservation, file reuse with a fresh ACP session, and distinct concurrent task worktrees. Responses are based on values returned by actual OMP tools, not tokens supplied in the prompt.
 
 The suite creates isolated homes. Keep any manual Hermes or OMP checks isolated too: point `HERMES_HOME`, `PI_CODING_AGENT_DIR`, and any other profile/data paths at temporary directories, and do not run tests against or modify a production or personal profile.
 
-CI runs both the unit and native integration suites against the provider wheel in two combinations: the latest stable Hermes and latest OMP with Python 3.14, and Hermes 0.21.4 (`v2026.9.21`) with OMP 15.7.6 and Python 3.11. Recheck the minimum combination locally when changing compatibility-sensitive code. See [verification](docs/verification.md) for the CI scope and minimum-version boundaries.
+The concurrent-task fixture initializes its disposable OMP profile through model discovery before starting overlapping calls. OMP 15.7.6 can fail simultaneous first opens of a fresh SQLite auth store; this fixture prerequisite is not a runtime retry or serialization guarantee. See [the limitation](docs/limitations.md#concurrent-omp-startup).
+
+CI runs both the unit and native integration suites against the distribution wheel in two combinations: the latest stable Hermes and latest OMP with Python 3.14, and Hermes 0.21.4 (`v2026.9.21`) with OMP 15.7.6 and Python 3.11. Recheck the minimum combination locally when changing compatibility-sensitive code. See [verification](docs/verification.md) for the CI scope and minimum-version boundaries.
+
+## Installed-wheel plugin discovery
+
+This opt-in check must run with the same Python interpreter Hermes uses. Build the wheel and sdist, install the wheel into that Hermes environment, then run the artifact tests with the installed-entrypoint flag:
+
+```sh
+uv build --out-dir dist
+HERMES_PYTHON=/absolute/path/to/hermes/python
+uv pip install --python "$HERMES_PYTHON" --no-deps dist/hermes_omp_acp-*.whl
+HERMES_OMP_DIST_DIR=dist \
+HERMES_OMP_CHECK_INSTALLED_ENTRYPOINT=1 \
+"$HERMES_PYTHON" -P -m unittest discover -s tests -p test_packaging.py -v
+```
+
+The check verifies the installed distribution metadata and both entry points, then invokes Hermes's real `PluginManager` and provider registry in a temporary home. Repeat with Hermes 0.21.4/Python 3.11 and 0.22.5/Python 3.14; no `advanced-delegation` plugin or `model_map` configuration is needed.
+
+Keep `PYTHONPATH="$HERMES_SOURCE"` exported as in the unit-test setup when Hermes is used from a source checkout rather than an importable installation. The installed-artifact tests execute a task through the real registry and ACP subprocess peer and load the standalone directory wrapper; they do not merely inspect entry-point strings. Use a disposable Hermes environment for this installation.
 
 ## Build the distribution
 
@@ -95,9 +114,9 @@ VERSION=0.2.0
   "hermes-omp-acp==$VERSION"
 ```
 
-Install the SDK from the normal package index first. The provider installation uses `--no-deps` so TestPyPI is used only for the provider release under validation.
+Install the SDK from the normal package index first. The distribution installation uses `--no-deps` so TestPyPI is used only for the release under validation.
 
-Run Hermes from that same environment, enable the `omp-acp-provider` plugin, and exercise the quick start in [the root README](README.md#quick-start). Check that Hermes discovers the installed entry point and that its documented behavior works; `pip install` alone is not validation.
+Run Hermes from that same environment, enable the `omp-acp-provider` plugin for model routing or `omp-task` for the repository tool, and exercise the corresponding quick start in [the root README](README.md#quick-start). Check that Hermes discovers the installed entry point and that its documented behavior works; `pip install` alone is not validation.
 
 ### Production release
 
@@ -113,7 +132,7 @@ After the TestPyPI install check succeeds, create and publish a GitHub Release f
 
 For runtime changes, exercise the changed path with the applicable real Hermes/OMP installation and temporary profiles and test files. Include the Hermes and OMP versions, scenario, and observed result in the pull request. Paid-provider authentication, live model behavior, and permission-dependent operations need separate checks against the relevant configured provider.
 
-- Keep changes focused on the provider and reuse existing Hermes behavior where possible.
+- Keep changes focused on the provider, task tool, and shared ACP runtime; reuse existing Hermes behavior where possible.
 - Add regression coverage for consumer-visible compatibility changes.
 - Include the problem, implementation, and verification results in the pull request.
 - Keep credentials, personal configuration, and session data out of commits and logs.

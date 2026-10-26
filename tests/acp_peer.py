@@ -2,6 +2,7 @@
 
 import asyncio
 import os
+import json
 import sys
 from pathlib import Path
 
@@ -83,14 +84,6 @@ class Peer(Agent):
                 "configOptions": [{**OPTIONS[0], "currentValue": "fixture/default"}],
             })
         return SetSessionConfigOptionResponse.model_validate({"configOptions": OPTIONS})
-
-    async def set_session_model(self, model_id, session_id, **kwargs):
-        if self.mode == "legacy-reject":
-            raise ValueError("Model selection rejected")
-        if model_id != "fixture/model":
-            raise ValueError("The requested model is unavailable")
-        self.model = model_id
-        return {}
 
     async def prompt(self, prompt, session_id, **kwargs):
         (self.cwd / "prompt-executed").write_text("executed")
@@ -214,6 +207,53 @@ class Peer(Agent):
 
         await self.client.session_update(session_id=session_id, update=update_agent_message_text(text))
         return PromptResponse(stop_reason="end_turn")
+def legacy_peer(mode):
+    """Speak the retired extension directly; current SDKs drop its fields/RPC."""
+    cwd = None
+    selected = "fixture/default"
+
+    def send(message):
+        print(json.dumps({"jsonrpc": "2.0", **message}), flush=True)
+
+    for line in sys.stdin:
+        request = json.loads(line)
+        if "id" not in request:
+            continue
+        method = request["method"]
+        params = request.get("params", {})
+        if method == "initialize":
+            result = {"protocolVersion": PROTOCOL_VERSION, "agentCapabilities": {}}
+        elif method == "session/new":
+            cwd = Path(params["cwd"])
+            result = {"sessionId": "fixture", "models": {
+                "currentModelId": selected,
+                "availableModels": [{"modelId": "fixture/model", "name": "Fixture"}],
+            }}
+        elif method == "session/set_model":
+            if mode == "legacy-reject" or params["modelId"] != "fixture/model":
+                send({"id": request["id"], "error": {"code": -32602, "message": "Model selection rejected"}})
+                continue
+            selected = params["modelId"]
+            result = {}
+        elif method == "session/prompt":
+            (cwd / "prompt-executed").write_text("executed")
+            for text in (("first", " second") if selected == "fixture/model" else ("wrong model",)):
+                send({"method": "session/update", "params": {
+                    "sessionId": "fixture", "update": {
+                        "sessionUpdate": "agent_message_chunk",
+                        "content": {"type": "text", "text": text},
+                    },
+                }})
+            result = {"stopReason": "end_turn"}
+        else:
+            send({"id": request["id"], "error": {"code": -32601, "message": "Method not found"}})
+            continue
+        send({"id": request["id"], "result": result})
+
+
 
 if __name__ == "__main__":
-    asyncio.run(run_agent(Peer(), use_unstable_protocol=True))
+    if len(sys.argv) > 1 and sys.argv[1].startswith("legacy"):
+        legacy_peer(sys.argv[1])
+    else:
+        asyncio.run(run_agent(Peer(), use_unstable_protocol=True))

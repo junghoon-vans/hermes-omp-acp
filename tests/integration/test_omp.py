@@ -21,6 +21,9 @@ class NativeOmpTests(unittest.TestCase):
         command = os.environ.get("OMP_INTEGRATION_COMMAND") or shutil.which("omp")
         if not command:
             raise RuntimeError("Install OMP or set OMP_INTEGRATION_COMMAND before running integration tests")
+        self.omp_command = str(Path(command).resolve())
+        # Hermes may redirect tempfile globally into this test's profile.
+        self.addCleanup(setattr, tempfile, "tempdir", tempfile.tempdir)
         temporary = tempfile.TemporaryDirectory(prefix="hermes-native-omp-")
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
@@ -29,6 +32,10 @@ class NativeOmpTests(unittest.TestCase):
         self.probe.write_text(self.token + "\n")
         self.endpoint = ModelEndpoint(self.probe)
         self.addCleanup(self.endpoint.close)
+        self.omp_args = [
+            "acp", "--session-dir", str(self.root / "sessions with spaces"),
+            "--no-title", "--no-lsp", "--no-extensions", "--no-skills", "--no-rules",
+        ]
         agent_dir = self.root / ".omp" / "agent"
         agent_dir.mkdir(parents=True)
         (agent_dir / "models.yml").write_text(json.dumps({"providers": {"fixture": {
@@ -45,11 +52,8 @@ class NativeOmpTests(unittest.TestCase):
             "plugins": {
                 "enabled": ["omp-acp-provider"],
                 "entries": {"omp-acp-provider": {"settings": {
-                    "command": str(Path(command).resolve()),
-                    "args": [
-                        "acp", "--session-dir", str(self.root / "sessions with spaces"),
-                        "--no-title", "--no-lsp", "--no-extensions", "--no-skills", "--no-rules",
-                    ],
+                    "command": self.omp_command,
+                    "args": self.omp_args,
                     "mcp_enabled": True,
                 }}},
             },
@@ -69,8 +73,13 @@ class NativeOmpTests(unittest.TestCase):
         isolation = patch.dict(os.environ, environment, clear=True)
         isolation.start()
         self.addCleanup(isolation.stop)
+        from hermes_logging import _reset_queued_handlers
+
+        self.addCleanup(_reset_queued_handlers)
         self.profile = get_provider_profile("omp-acp")
         self.assertIsNotNone(self.profile, "Hermes did not discover the installed provider")
+        # Provider discovery is process-global; each fixture owns fresh launch paths.
+        self.configure()
 
     def configure(self, **settings):
         from hermes_omp_acp.provider import register
@@ -247,6 +256,97 @@ Path(sys.argv[2]).write_text(json.dumps({
         self.assertTrue(response["completed"], result.stdout + result.stderr)
         self.assertEqual(response["response"], self.token)
         self.assert_native_read_and_model_selection()
+
+    def _workspace_tool(self):
+        from types import SimpleNamespace
+        from hermes_omp_acp.tool_plugin import register
+        from tools.registry import registry
+
+        repository = self.root / "repository"
+        repository.mkdir()
+        (repository / "probe.txt").write_text(self.token + "\n")
+        for arguments in (
+            ["init", "--quiet"],
+            ["add", "probe.txt"],
+            ["-c", "user.name=OMP integration", "-c", "user.email=check@example.invalid",
+             "commit", "--quiet", "-m", "initial"],
+        ):
+            subprocess.run(["git", "-C", str(repository), *arguments], check=True)
+        modified = "NATIVE_READ_" + secrets.token_hex(8)
+        endpoint = ModelEndpoint(Path("probe.txt"), replacement=modified)
+        self.addCleanup(endpoint.close)
+        models_path = Path(os.environ["PI_CODING_AGENT_DIR"]) / "models.yml"
+        models = json.loads(models_path.read_text())
+        models["providers"]["fixture"]["baseUrl"] = endpoint.url
+        models_path.write_text(json.dumps(models))
+        self.task_settings = {
+            "model_id": "fixture/model-b", "allowed_roots": [str(repository)],
+            "command": self.omp_command, "args": self.omp_args[:],
+            "mcp_enabled": True, "timeout_seconds": 60,
+        }
+        scope = str(Path(os.environ["HERMES_HOME"]).resolve())
+        register(SimpleNamespace(
+            get_config=lambda key, default=None: self.task_settings.get(key, default),
+            register_tool=lambda **kwargs: registry.register(**kwargs, scope=scope),
+        ))
+        self.addCleanup(lambda: registry.deregister("omp_task", scope=scope))
+
+        def invoke(task_id=None):
+            arguments = {"repository": str(repository), "goal": "Read, change and read back probe.txt"}
+            if task_id is not None:
+                arguments["task_id"] = task_id
+            result = json.loads(registry.dispatch("omp_task", arguments, scope=scope))
+            self.assertEqual(result["status"], "success", result)
+            self.assertEqual(result["response"], modified)
+            return result
+
+        return repository, modified, endpoint, invoke
+
+    def _assert_workspace_change(self, result, repository, modified):
+        worktree = Path(result["path"])
+        self.assertEqual((repository / "probe.txt").read_text(), self.token + "\n")
+        self.assertEqual((worktree / "probe.txt").read_text(), modified + "\n")
+        sessions = [
+            json.loads(line)
+            for path in (self.root / "sessions with spaces").rglob("*.jsonl")
+            for line in path.read_text().splitlines()
+            if line.strip()
+        ]
+        self.assertTrue(any(record.get("type") == "session" and
+                            Path(record.get("cwd", "/")).resolve() == worktree.resolve()
+                            for record in sessions))
+        return worktree
+
+    def test_omp_task_changes_only_retained_worktree_and_reuses_task_files(self):
+        repository, modified, endpoint, invoke = self._workspace_tool()
+        first = invoke()
+        worktree = self._assert_workspace_change(first, repository, modified)
+        (worktree / "retained.txt").write_text("retained")
+        second = invoke(first["task_id"])
+        self.assertEqual(second["path"], first["path"])
+        self.assertEqual((worktree / "retained.txt").read_text(), "retained")
+        self.assertFalse(endpoint.errors, endpoint.errors)
+        self.assertEqual({request["model"] for request in endpoint.requests}, {"model-b"})
+
+    def test_concurrent_omp_tasks_keep_distinct_owned_worktrees(self):
+        from concurrent.futures import ThreadPoolExecutor
+
+        repository, modified, endpoint, invoke = self._workspace_tool()
+        # Initialize this disposable OMP profile before overlapping requests.
+        # OMP 15.7.6 switches a brand-new SQLite auth store to WAL before
+        # installing its busy timeout; simultaneous first opens can fail there.
+        from hermes_omp_acp._session import ACPRuntime
+
+        with closing(ACPRuntime(command=self.omp_command, args=self.omp_args,
+                                acp_cwd=str(self.root), mcp_enabled=False)) as runtime:
+            models = asyncio.run(runtime.list_models(20))
+        self.assertIn("fixture/model-b", models)
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = [executor.submit(invoke) for _ in range(2)]
+            results = [future.result(90) for future in futures]
+        self.assertFalse(endpoint.errors, endpoint.errors)
+        paths = [self._assert_workspace_change(result, repository, modified) for result in results]
+        self.assertNotEqual(paths[0], paths[1])
 
 
 if __name__ == "__main__":
