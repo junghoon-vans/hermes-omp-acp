@@ -12,7 +12,7 @@
 - [`_session.py`](../hermes_omp_acp/_session.py) owns ACP negotiation, callbacks and filesystem policy, subprocesses, stderr, deadlines, and cancellation.
 - [`mcp.py`](../hermes_omp_acp/mcp.py) translates the global OMP MCP configuration into ACP server definitions; `_session.py` sends them when creating a completion session.
 
-The client calls the runtime's `list_models`, `run`, and `close` interfaces. SDK connections, child processes, callback buffers, and stderr tasks stay inside the runtime rather than crossing the interface as a tuple. A single runtime owns the active-session tracking for each client.
+The client calls the runtime's `list_models`, `run`, `cancel`, and `close` interfaces. SDK connections, child processes, callback buffers, and stderr tasks stay inside the runtime rather than crossing the interface as a tuple. A single runtime owns the active-session tracking for each client.
 
 ## Runtime behavior
 
@@ -25,6 +25,8 @@ Synchronous completions run the SDK on a local event loop; asynchronous completi
 Incoming message and reasoning chunks are collected in wire order before the prompt response is returned, independently of the SDK's background callback scheduling. Streaming remains buffered rather than live.
 
 One timeout budget covers initialization, session creation, model selection, and prompting. Requests also monitor child-process exit so a dead peer reports its failure instead of waiting for the response deadline. Child shutdown can take additional time. Each session tracks its own process and response buffers; `close()` stops active requests and their processes.
+
+`cancel()` is synchronous and thread-safe, and cancels all requests active on that client when called. `close()` also stops active requests; neither prevents a later independent completion. During prompting, cancellation sends `session/cancel` and waits a bounded interval for the original prompt to settle before escalating to process teardown. Startup cancellation does not require a session ID. Native async task cancellation and request timeouts notify only their own prompt, preserving overlapping siblings and the caller's cancellation/timeout outcome. Sending a cancellation notification is not proof that earlier tool actions were rolled back.
 
 Cleanup retains the normal two-second graceful shutdown, but also bounds stdin close, termination, kill, and child reaping. Repeated cancellation cannot abandon that cleanup, and cleanup crossing the request deadline does not replace an already-raised request failure with a timeout. These bounds apply to the owned OMP child, not an arbitrary descendant process tree.
 
