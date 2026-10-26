@@ -17,8 +17,14 @@ class ProtocolPeer(Peer):
             return {"agentCapabilities": {}}
         if self.mode == "invalid-version":
             return {"protocolVersion": "invalid", "agentCapabilities": {}}
+        version = {
+            "unsupported-version": 999,
+            "string-version": str(protocol_version),
+            "boolean-version": True,
+            "float-version": float(protocol_version),
+        }.get(self.mode, protocol_version)
         return {
-            "protocolVersion": 999 if self.mode == "unsupported-version" else protocol_version,
+            "protocolVersion": version,
             "agentCapabilities": {"futureOptionalCapability": True},
         }
 

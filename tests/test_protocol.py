@@ -62,7 +62,10 @@ class ProtocolNegotiationTests(unittest.TestCase):
         self.assert_peer_reaped()
 
     def test_incompatible_or_invalid_version_cannot_create_a_session(self):
-        for mode in ("unsupported-version", "missing-version", "invalid-version"):
+        for mode in (
+            "unsupported-version", "missing-version", "invalid-version",
+            "string-version", "boolean-version", "float-version",
+        ):
             with self.subTest(mode=mode):
                 (self.home / "session-created").unlink(missing_ok=True)
                 (self.home / "prompt-executed").unlink(missing_ok=True)
