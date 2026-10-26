@@ -24,6 +24,18 @@ Synchronous completions run the SDK on a local event loop; asynchronous completi
 
 Incoming message and reasoning chunks are collected in wire order before the prompt response is returned, independently of the SDK's background callback scheduling. Streaming remains buffered rather than live.
 
+Terminal prompt outcomes are preserved rather than treating every partial answer as successful completion:
+
+| ACP stop reason | Hermes-compatible result |
+| --- | --- |
+| `end_turn` | Ordinary `stop`, or `tool_calls` for complete extracted calls. |
+| `max_tokens` | `length`, preserving partial text but exposing no executable tool calls. Hermes's normal length-continuation behavior remains applicable. |
+| `max_turn_requests` | A terminal, non-retryable error identifying the original request-limit reason. Mapping it to `length` would incorrectly start another ACP completion. |
+| `cancelled` | `InterruptedError`, not successful partial output, retry, or fallback. |
+| `refusal` | Original refusal text and standard refusal metadata, not an invented transport or content-filter error. |
+
+Returned completions retain `acp_stop_reason`; buffered stream deltas also retain the stop reason and refusal metadata. Only `end_turn` can produce executable extracted tool calls, so cancelled or limited partial tool-call text cannot run as a Hermes tool.
+
 One timeout budget covers initialization, session creation, model selection, and prompting. Requests also monitor child-process exit so a dead peer reports its failure instead of waiting for the response deadline. Child shutdown can take additional time. Each session tracks its own process and response buffers; `close()` stops active requests and their processes.
 
 `cancel()` is synchronous and thread-safe, and cancels all requests active on that client when called. `close()` also stops active requests; neither prevents a later independent completion. During prompting, cancellation sends `session/cancel` and waits a bounded interval for the original prompt to settle before escalating to process teardown. Startup cancellation does not require a session ID. Native async task cancellation and request timeouts notify only their own prompt, preserving overlapping siblings and the caller's cancellation/timeout outcome. Sending a cancellation notification is not proof that earlier tool actions were rolled back.

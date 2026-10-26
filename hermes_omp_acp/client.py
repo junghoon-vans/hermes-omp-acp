@@ -94,10 +94,10 @@ class OmpACPClient:
             tools=kwargs.get("tools"),
             tool_choice=kwargs.get("tool_choice"),
         )
-        response_text, reasoning = asyncio.run(
+        response_text, reasoning, stop_reason = asyncio.run(
             self._runtime.run(prompt_text, model, _effective_timeout(kwargs.get("timeout")))
         )
-        return build_completion(response_text, reasoning, model)
+        return build_completion(response_text, reasoning, model, stop_reason=stop_reason)
 
     def _create_chat_completion(self, **kwargs: Any) -> Any:
         try:
@@ -114,12 +114,12 @@ class OmpACPClient:
             tools=kwargs.get("tools"),
             tool_choice=kwargs.get("tool_choice"),
         )
-        response_text, reasoning = await self._runtime.run(
+        response_text, reasoning, stop_reason = await self._runtime.run(
             prompt_text,
             model,
             _effective_timeout(kwargs.get("timeout")),
         )
-        completion = build_completion(response_text, reasoning, model)
+        completion = build_completion(response_text, reasoning, model, stop_reason=stop_reason)
         if not kwargs.get("stream"):
             return completion
 
