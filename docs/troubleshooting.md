@@ -20,6 +20,10 @@ The provider reports structured failure context, including the request phase, RP
 
 Only a classified transient transport failure known to precede prompt dispatch is retryable. A timeout or lost connection after dispatch means the outcome is unknown: the provider cannot prove that OMP performed no work and does not authorize automatic replay or fallback. This policy also applies when Hermes's delegated watchdog wraps the provider error. Inspect the task's actual effects before manually resubmitting it; cancellation and process exit do not roll back completed tool actions.
 
+Timeouts use Hermes's `timeout` classification; a disconnected agent with an unknown outcome is not a malformed request. Only invalid ACP request/parameter errors use `format_error`. Terminal failures remain non-retryable with fallback disabled, independently of the displayed cause.
+
+The provider supplies actionable guidance through `error_context.display_message`. Showing it requires a Hermes build that honors this field for terminal provider errors. Stock Hermes 0.21.4 and 0.22.5 remain runtime-compatible but use their generic rejection copy until that renderer change is applied. Starting a new session or switching models does not establish that an earlier task performed no work.
+
 ## MCP tools missing
 
 A successful model picker does not check MCP connectivity: model discovery deliberately sends no MCP servers. Check the environment of the process that launches Hermes, not just an interactive terminal:
