@@ -74,6 +74,9 @@ def main():
                 }],
             })
         elif method == "session/set_config_option":
+            if mode == "model-selection":
+                (cwd / "cancel-peer.model-ready").touch()
+                _wait_forever()
             _reply(request, {"configOptions": []})
         elif method == "session/prompt":
             prompt_count = _next_prompt_count()
