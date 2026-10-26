@@ -23,6 +23,7 @@ def _classify_acp_error(
     # Hermes's delegated watchdog replaces the provider exception with a plain
     # TimeoutError, retaining the original in Python's exception chain.
     seen: set[int] = set()
+    timed_out = isinstance(error, TimeoutError)
     while not isinstance(error, (ACPError, ACPTimeoutError, ACPCancelledError)):
         if id(error) in seen:
             return None
@@ -31,6 +32,7 @@ def _classify_acp_error(
         if wrapped is None:
             return None
         error = wrapped
+        timed_out = timed_out or isinstance(error, TimeoutError)
 
     context: dict[str, Any] = {
         "phase": error.phase,
@@ -54,8 +56,31 @@ def _classify_acp_error(
             "should_fallback": False,
             "error_context": context,
         }
+    reason = "unknown"
+    if timed_out:
+        reason = "timeout"
+        guidance = "OMP did not respond before the request deadline."
+    elif isinstance(error, ACPCancelledError):
+        guidance = "The OMP request was cancelled."
+    elif error.rpc_code in (-32600, -32602):
+        reason = "format_error"
+        guidance = "OMP rejected an invalid ACP request."
+    elif error.failure_kind == "outcome_unknown":
+        guidance = "The OMP connection ended before a result was received."
+    elif error.phase == "launch":
+        guidance = "Hermes could not start OMP."
+    elif error.phase == "model_selection":
+        guidance = "OMP could not select the requested model."
+    else:
+        guidance = "OMP reported an ACP request failure."
+
+    if error.prompt_dispatched is False:
+        guidance += " The task was not dispatched to OMP."
+    else:
+        guidance += " The task may have executed partially; inspect any changes before submitting it again."
+    context["display_message"] = guidance + " Hermes did not retry or switch models automatically."
     return {
-        "reason": "format_error",
+        "reason": reason,
         "retryable": False,
         "should_fallback": False,
         "error_context": context,

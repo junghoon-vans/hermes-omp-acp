@@ -9,7 +9,7 @@ from unittest.mock import patch
 from agent.error_classifier import classify_api_error
 from providers import get_provider_profile
 
-from hermes_omp_acp.errors import ACPError, ACPTimeoutError
+from hermes_omp_acp.errors import ACPError, ACPCancelledError, ACPTimeoutError
 from hermes_omp_acp.provider import register
 
 
@@ -80,7 +80,6 @@ class RuntimeErrorClassificationTests(unittest.TestCase):
         self.assertEqual(error.failure_kind, "deterministic")
         self.assertIsNone(error.cause)
         classified = self._classify(error, "fixture/missing")
-        self.assertEqual(classified.reason.value, "format_error")
         self.assertFalse(classified.retryable)
         self.assertFalse(classified.should_fallback)
         self.assertFalse((self.home / "prompt-executed").exists())
@@ -146,6 +145,36 @@ class RuntimeErrorClassificationTests(unittest.TestCase):
         self.assertEqual((self.home / "error-peer.prompt-count").read_text().splitlines(), ["1"])
         self._assert_reaped(int((self.home / "error-peer.pid").read_text(encoding="ascii")))
 
+    def test_dispatched_disconnect_is_unknown_not_an_input_rejection(self):
+        error = ACPError(
+            "ACP stdout closed", phase="prompt", method="session/prompt",
+            prompt_dispatched=True, failure_kind="outcome_unknown",
+        )
+        classified = self._classify(error)
+        self.assertEqual(classified.reason.value, "unknown")
+        self.assertFalse(classified.retryable)
+        self.assertFalse(classified.should_fallback)
+        self.assertTrue(classified.error_context["prompt_dispatched"])
+
+    def test_invalid_rpc_parameters_remain_an_input_error(self):
+        error = ACPError(
+            "Invalid params", phase="prompt", method="session/prompt",
+            rpc_code=-32602, prompt_dispatched=True, failure_kind="deterministic",
+        )
+        classified = self._classify(error)
+        self.assertEqual(classified.reason.value, "format_error")
+        self.assertFalse(classified.retryable)
+        self.assertFalse(classified.should_fallback)
+
+    def test_caller_cancellation_is_not_classified_as_a_deadline(self):
+        classified = self._classify(ACPCancelledError(
+            phase="prompt", method="session/prompt", prompt_dispatched=True,
+        ))
+        self.assertEqual(classified.reason.value, "unknown")
+        self.assertFalse(classified.retryable)
+        self.assertFalse(classified.should_fallback)
+        self.assertEqual(classified.error_context["failure_kind"], "cancelled")
+
     def test_post_dispatch_timeout_is_terminal_and_outcome_unknown(self):
         client = self._client("hang-prompt")
         try:
@@ -161,6 +190,8 @@ class RuntimeErrorClassificationTests(unittest.TestCase):
         classified = self._classify(error)
         self.assertFalse(classified.retryable)
         self.assertFalse(classified.should_fallback)
+        self.assertEqual(classified.reason.value, "timeout")
+        self.assertIn("display_message", classified.error_context)
         self.assertEqual((self.home / "error-peer.prompt-count").read_text().splitlines(), ["1"])
         self._assert_reaped(int((self.home / "error-peer.pid").read_text(encoding="ascii")))
 

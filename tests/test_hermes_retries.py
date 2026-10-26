@@ -48,6 +48,7 @@ with closing(AIAgent(provider="omp-acp", model="fixture/model", api_key="omp-acp
     result = agent.run_conversation("Execute the task once and report its outcome.")
 Path(sys.argv[1]).write_text(json.dumps({
     "completed": result["completed"], "failure_reason": result.get("failure_reason"),
+    "failure_retryable": result.get("failure_retryable"),
 }))
 """
             result_path = root / "result.json"
@@ -60,13 +61,15 @@ Path(sys.argv[1]).write_text(json.dumps({
             self.assertFalse(result["completed"])
             receipts = (root / "error-peer.prompt-count").read_text(encoding="ascii").splitlines()
             self.assertEqual(receipts, ["1"], "Hermes replayed a prompt after watchdog error translation")
-            self.assertEqual(result["failure_reason"], "format_error")
+            self.assertIs(result["failure_retryable"], False)
+            return result
 
     def test_watchdog_preserves_terminal_rpc_failure_classification(self):
         self.run_failed_turn("rpc-error")
 
     def test_watchdog_does_not_replay_a_timed_out_dispatched_prompt(self):
-        self.run_failed_turn("hang-prompt")
+        result = self.run_failed_turn("hang-prompt")
+        self.assertEqual(result["failure_reason"], "timeout")
 
 
 if __name__ == "__main__":
