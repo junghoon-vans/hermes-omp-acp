@@ -39,6 +39,30 @@ from agent.runtime_cwd import resolve_agent_cwd
 from .mcp import load_mcp_servers
 
 
+# Command catalogs and tool results can exceed asyncio's default 64 KiB line limit.
+DEFAULT_STREAM_LIMIT_BYTES = 16 * 1024 * 1024
+
+
+def validate_stream_limit_bytes(value: Any) -> int:
+    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+        raise ValueError("omp-acp-provider.settings.stream_limit_bytes must be a positive integer")
+    return value
+
+
+def _resolve_stream_limit_bytes(configured_limit: int) -> int:
+    configured_limit = validate_stream_limit_bytes(configured_limit)
+    override = os.getenv("HERMES_OMP_ACP_STREAM_LIMIT_BYTES", "").strip()
+    if not override:
+        return configured_limit
+    try:
+        limit = int(override)
+        if limit <= 0:
+            raise ValueError
+    except ValueError:
+        raise ValueError("HERMES_OMP_ACP_STREAM_LIMIT_BYTES must be a positive integer") from None
+    return limit
+
+
 def _resolve_command() -> str:
     return os.getenv("HERMES_OMP_ACP_COMMAND", "").strip() or "omp"
 
@@ -332,7 +356,9 @@ class ACPRuntime:
         command: str | None = None,
         args: list[str] | None = None,
         mcp_enabled: bool = True,
+        stream_limit_bytes: int = DEFAULT_STREAM_LIMIT_BYTES,
     ):
+        self._stream_limit_bytes = _resolve_stream_limit_bytes(stream_limit_bytes)
         self._acp_command = acp_command or command or _resolve_command()
         self._acp_args = list(
             acp_args if acp_args is not None else args if args is not None else _resolve_args()
@@ -425,7 +451,11 @@ class ACPRuntime:
                     *self._acp_args,
                     env=_build_subprocess_env(),
                     cwd=self._acp_cwd,
-                    transport_kwargs={"stderr": aio_subprocess.PIPE, "shutdown_timeout": 2.0},
+                    transport_kwargs={
+                        "stderr": aio_subprocess.PIPE,
+                        "shutdown_timeout": 2.0,
+                        "limit": self._stream_limit_bytes,
+                    },
                     use_unstable_protocol=True,
                     observers=[callbacks.observe],
                 ) as (connection, spawned_process):
