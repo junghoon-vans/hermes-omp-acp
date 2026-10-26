@@ -36,6 +36,9 @@ from agent.file_safety import (
 from agent.redact import redact_sensitive_text
 from agent.runtime_cwd import resolve_agent_cwd
 
+from .mcp import load_mcp_servers
+
+
 def _resolve_command() -> str:
     return os.getenv("HERMES_OMP_ACP_COMMAND", "").strip() or "omp"
 
@@ -76,6 +79,23 @@ def _as_mapping(value: Any) -> Mapping[str, Any]:
         dumped = model_dump(by_alias=True)
         return dumped if isinstance(dumped, Mapping) else {}
     return {}
+
+
+def _validate_mcp_transports(mcp_servers: list[dict], initialize_result: Any) -> None:
+    agent_capabilities = _as_mapping(_as_mapping(initialize_result).get("agentCapabilities"))
+    mcp_capabilities = _as_mapping(agent_capabilities.get("mcpCapabilities"))
+    unsupported = {
+        server["type"]
+        for server in mcp_servers
+        if server.get("type") in {"http", "sse"}
+        and mcp_capabilities.get(server["type"]) is not True
+    }
+    if unsupported:
+        transports = ", ".join(sorted(unsupported))
+        raise RuntimeError(
+            f"OMP ACP agent does not support configured MCP transport(s): {transports}. "
+            "The agent must advertise support during initialize."
+        )
 
 
 def _enabled_id_list(entries: Any, key: str) -> list[str]:
@@ -387,6 +407,7 @@ class ACPRuntime:
 
     @asynccontextmanager
     async def _session(self, *, allow_file_requests: bool = True) -> AsyncGenerator[_SessionState, None]:
+        mcp_servers = load_mcp_servers() if allow_file_requests else []
         task, generation = self._begin_session()
         process: asyncio.subprocess.Process | None = None
         stderr_task: asyncio.Task[None] | None = None
@@ -416,7 +437,7 @@ class ACPRuntime:
                         stderr_task=stderr_task,
                         stderr_tail=stderr_tail,
                     )
-                    await self._request(
+                    initialize_result = await self._request(
                         state,
                         "initialize",
                         connection.initialize(
@@ -431,10 +452,11 @@ class ACPRuntime:
                             ),
                         ),
                     )
+                    _validate_mcp_transports(mcp_servers, initialize_result)
                     session = await self._request(
                         state,
                         "session/new",
-                        connection.new_session(cwd=self._acp_cwd, mcp_servers=[]),
+                        connection.new_session(cwd=self._acp_cwd, mcp_servers=mcp_servers),
                     )
                     session_data = _as_mapping(session)
                     if not str(session_data.get("sessionId") or "").strip():

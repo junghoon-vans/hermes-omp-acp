@@ -31,7 +31,7 @@ jobs:
           - name: Minimum supported Hermes / OMP
             python: "3.11"
             hermes: v2026.9.21
-            omp: "15.0.0"
+            omp: "15.7.6"
     steps:
       - uses: actions/checkout@v7.0.1
         with:
