@@ -4,8 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "hermes-omp-acp"
-version = "0.2.0"
-dynamic = ["description"]
+dynamic = ["version", "description"]
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
