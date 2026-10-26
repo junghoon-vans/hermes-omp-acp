@@ -2,6 +2,8 @@
 
 [![PyPI](https://img.shields.io/pypi/v/hermes-omp-acp)](https://pypi.org/project/hermes-omp-acp/)
 [![Python: 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://pypi.org/project/hermes-omp-acp/)
+[![Hermes: 0.21.4+](https://img.shields.io/badge/Hermes-0.21.4%2B-blue)](https://github.com/NousResearch/hermes-agent/releases/tag/v2026.9.21)
+[![OMP: 15.7.6+](https://img.shields.io/badge/OMP-15.7.6%2B-blue)](https://github.com/can1357/oh-my-pi/releases/tag/v15.7.6)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 **Bring OMP's model routing to Hermes Agent.**
@@ -13,7 +15,7 @@ Hermes sends requests to `omp acp`; OMP handles model inference. Select an OMP `
 ## Requirements
 
 - **Hermes Agent 0.21.4 or later** ([release `v2026.9.21`](https://github.com/NousResearch/hermes-agent/releases/tag/v2026.9.21)).
-- **OMP 15.0.0 or later**, with `omp` on the Hermes process's `PATH` and a configured model.
+- **OMP 15.7.6 or later**, with `omp` on the Hermes process's `PATH` and a configured model. This version fixes activation of client-provided MCP tools in ACP sessions.
 - **Python matching Hermes:** 3.11–3.13 for Hermes 0.21.4; 3.14 for Hermes 0.22.x.
 
 ## Quick start
@@ -73,49 +75,14 @@ For local source installation and development, see [CONTRIBUTING.md](CONTRIBUTIN
 
 ## Configuration
 
-| Environment variable | Default | Purpose |
-| --- | --- | --- |
-| `HERMES_OMP_ACP_COMMAND` | `omp` | Override the executable, for example with an absolute path. |
-| `HERMES_OMP_ACP_ARGS` | `acp` | Replace the complete argument list; parsed with shell-style quoting. Include `acp` when overriding. |
-
-These variables must be available to the Hermes process, including a gateway launched as a service.
-
-## Official delegation model routes
-
-To choose an OMP model per subagent task, use the official [Advanced Delegation plugin](https://github.com/NousResearch/hermes-official-plugins/tree/main/advanced-delegation), which requires **Hermes 0.22.5 or later**. Install and enable both plugins in the profile that delegates:
-
-```sh
-hermes plugins install advanced-delegation
-hermes plugins enable advanced-delegation
-```
-
-The `omp-acp-provider` installation and activation steps above are also required. Merge this separate delegation configuration into that profile's `config.yaml`:
-
-```yaml
-delegation:
-  backend: model_map
-  backends:
-    model_map:
-      options:
-        - name: omp-deep
-          description: Complex code analysis and implementation.
-          provider: omp-acp
-          model: openai-codex/gpt-6.1-sol
-      default: omp-deep
-```
-
-Replace `model` with an OMP model ID available to your account. Start a new Hermes session after changing routes.
-
-**Do not copy `base_url: acp://omp` from the main-model example into a delegation route.** Hermes's delegation resolver treats an explicit `base_url` as a custom endpoint; use `provider: omp-acp` and let the provider resolve its executable and arguments.
-
-This routes Hermes subagents to OMP models. The provider does not manage retained OMP sessions or worktrees; each completion starts a new ACP session. Route-level `reasoning_effort` and `service_tier` are not mapped to OMP settings by this provider.
+See [Configuration](docs/configuration.md) for per-profile plugin settings, environment overrides, MCP forwarding, and delegation model routes. Launch options default to `omp acp`; MCP forwarding is enabled by default.
 
 ## Documentation
 
-- [How it works](docs/model-provider/implementation.md)
-- [Known limitations](docs/model-provider/limitations.md)
-- [Troubleshooting](docs/model-provider/troubleshooting.md)
-- [Verification](docs/model-provider/verification.md)
+- [How it works](docs/implementation.md)
+- [Known limitations](docs/limitations.md)
+- [Troubleshooting](docs/troubleshooting.md)
+- [Verification](docs/verification.md)
 
 ## Development
 

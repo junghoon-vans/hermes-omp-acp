@@ -4,13 +4,13 @@ Run development commands from the repository root. This repository builds one Py
 
 ## Package boundary and Python environment
 
-The root package builds `hermes-omp-acp`, requires Python 3.11 or later, and declares no package dependencies. It runs inside a Hermes environment; its tests need Hermes's `acp` extra, which provides the official `agent-client-protocol` test peer dependency. Use a Python version supported by the Hermes release being checked.
+The root package builds `hermes-omp-acp`, requires Python 3.11 or later, and declares `agent-client-protocol>=0.9.0,<0.10.0` as its transport dependency. It runs inside a Hermes environment and reuses Hermes's shared provider, completion bridge, environment, and safety interfaces, not its Copilot ACP client. Use a Python version supported by the Hermes release being checked.
 
 For supported user-facing minimums, see the [requirements](README.md#requirements).
 
 ## Provider unit tests
 
-Run provider tests with the Python environment for a supported Hermes checkout, with Hermes's `acp` extra installed and this provider installed into that environment. For example, from the repository root, set `HERMES_SOURCE` to a Hermes source checkout and use its `uv` environment:
+Run provider tests with the Python environment for a supported Hermes checkout. The commands below install Hermes's `acp` extra, which supplies the SDK used by both the provider and the real ACP test peer; the subsequent `--no-deps` installation therefore has its transport dependency available. From the repository root, set `HERMES_SOURCE` to a Hermes source checkout and use its `uv` environment:
 
 ```sh
 uv sync --project "$HERMES_SOURCE" --extra acp --locked --no-install-project
@@ -19,7 +19,7 @@ export PYTHONPATH="$HERMES_SOURCE"
 uv run --project "$HERMES_SOURCE" --no-sync python -P -m unittest discover -s tests -v
 ```
 
-These deterministic tests exercise provider registration, asynchronous event-loop responsiveness, streaming completion boundaries, and missing-executable handling. They need no model credentials. Use a Hermes release and Python combination supported by that release; provider minimums are Hermes 0.21.4 and OMP 15.0.0, with Python matching Hermes.
+These deterministic tests exercise model discovery and strict selection, synchronous and asynchronous callers, ordered buffered streaming, readiness-gated concurrent sessions, timeout/cancellation/close with child-process reaping, permission cancellation, safe file write/read-back, filesystem restrictions/redaction, reasoning/tool-call conversion, and missing or exited executables. They need no model credentials and use the public provider/client interface rather than private module imports. Provider minimums are Hermes 0.21.4 and OMP 15.7.6, with Python matching Hermes.
 
 ## Native OMP integration
 
@@ -33,9 +33,13 @@ Set `OMP_INTEGRATION_COMMAND` to an absolute executable path to test a specific 
 
 The suite creates isolated homes. Keep any manual Hermes or OMP checks isolated too: point `HERMES_HOME`, `PI_CODING_AGENT_DIR`, and any other profile/data paths at temporary directories, and do not run tests against or modify a production or personal profile.
 
-CI checks the provider wheel with the latest stable Hermes and latest OMP, using Python 3.14, and runs both the unit and native integration suites. The provider compatibility-sensitive minimum combination should also be rechecked locally when relevant code changes. See [verification](docs/model-provider/verification.md) for the CI scope and minimum-version boundaries.
+CI runs both the unit and native integration suites against the provider wheel in two combinations: the latest stable Hermes and latest OMP with Python 3.14, and Hermes 0.21.4 (`v2026.9.21`) with OMP 15.7.6 and Python 3.11. Recheck the minimum combination locally when changing compatibility-sensitive code. See [verification](docs/verification.md) for the CI scope and minimum-version boundaries.
 
 ## Build the distribution
+
+Root [`plugin.yaml`](plugin.yaml) is the single source of the package/plugin `version` and `description`. Edit those fields there, not in `pyproject.toml`. The project declares both fields as dynamic; [`hatch_build.py`](hatch_build.py) reads the manifest through Hatchling's custom metadata hook and supplies them to the wheel and sdist metadata.
+
+Hatchling and PyYAML are isolated build dependencies declared in `pyproject.toml`; neither is a provider runtime dependency. The sdist includes the hook and manifest so a wheel built from the sdist uses the same metadata.
 
 Install `uv`, then build the distribution from the repository root:
 
@@ -43,11 +47,15 @@ Install `uv`, then build the distribution from the repository root:
 uv build --out-dir dist
 ```
 
-CI builds the root distribution.
+CI builds the root distribution and checks both artifacts with Twine. To run the same metadata check locally after building:
+
+```sh
+uvx --from twine twine check --strict dist/*
+```
 
 ## Publish the provider distribution
 
-Publish `hermes-omp-acp` from tags named `vX.Y.Z`. Tags may use an optional `aN`, `bN`, or `rcN` suffix, and the version must exactly match root `pyproject.toml`.
+Publish `hermes-omp-acp` from tags named `vX.Y.Z`. Tags may use an optional `aN`, `bN`, or `rcN` suffix, and the version after `v` must exactly match `version` in root `plugin.yaml`. The release preparation job checks the package name in `pyproject.toml` and the version in `plugin.yaml` before compatibility checks and publication.
 
 ### One-time trusted-publishing setup
 
@@ -67,11 +75,11 @@ Pending publishers do not reserve project names; confirm the project name is ava
 
 ### TestPyPI dry run and installed-package validation
 
-Set the version in root `pyproject.toml`, commit the release candidate, then create and push its matching tag. Do not create a GitHub Release yet. For example, for version `0.1.0`:
+Set `version` in root `plugin.yaml`, build and check the distribution as described above, and commit the release preparation. After the release PR is merged, create and push the matching tag at that merged commit. Do not create a GitHub Release yet. For example, for version `0.2.0`:
 
 ```sh
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.2.0
+git push origin v0.2.0
 ```
 
 In GitHub, open **Actions → `publish.yml` → Run workflow**, enter the existing tag in the `tag` input, and start the run. The workflow runs its reusable CI prerequisite and uploads the tested wheel and sdist artifacts to TestPyPI unchanged. `workflow_dispatch` publishes **only** to TestPyPI; it does not create a GitHub Release or upload to production PyPI. This is a real TestPyPI publication, not a no-side-effect simulation.
@@ -80,11 +88,14 @@ Validate the package from TestPyPI in a disposable Hermes environment/profile. S
 
 ```sh
 HERMES_PYTHON=/absolute/path/to/hermes/python
-VERSION=0.1.0
+VERSION=0.2.0
+"$HERMES_PYTHON" -m pip install 'agent-client-protocol>=0.9.0,<0.10.0'
 "$HERMES_PYTHON" -m pip install --no-deps \
   --index-url https://test.pypi.org/simple \
   "hermes-omp-acp==$VERSION"
 ```
+
+Install the SDK from the normal package index first. The provider installation uses `--no-deps` so TestPyPI is used only for the provider release under validation.
 
 Run Hermes from that same environment, enable the `omp-acp-provider` plugin, and exercise the quick start in [the root README](README.md#quick-start). Check that Hermes discovers the installed entry point and that its documented behavior works; `pip install` alone is not validation.
 
@@ -96,7 +107,7 @@ After the TestPyPI install check succeeds, create and publish a GitHub Release f
 
 - A tag/version mismatch or failed CI gate prevents upload. Inspect the workflow logs, fix the provider, and create a correctly versioned tag for the corrected commit. Do not edit or replace the tested artifacts.
 - If a TestPyPI upload has succeeded, use a new version and matching tag for another test upload rather than relying on overwriting it.
-- Production PyPI versions are immutable: an uploaded file cannot be replaced or re-uploaded for that version. If any production artifact was uploaded before a failure, treat that version as consumed; bump the version in root `pyproject.toml` and publish a new matching tag and GitHub Release.
+- Production PyPI versions are immutable: an uploaded file cannot be replaced or re-uploaded for that version. If any production artifact was uploaded before a failure, treat that version as consumed; bump `version` in root `plugin.yaml` and publish a new matching tag and GitHub Release.
 
 ## Runtime changes and pull requests
 

@@ -4,7 +4,6 @@ import json
 import os
 from pathlib import Path
 import secrets
-import shlex
 import shutil
 import subprocess
 import sys
@@ -30,8 +29,8 @@ class NativeOmpTests(unittest.TestCase):
         self.probe.write_text(self.token + "\n")
         self.endpoint = ModelEndpoint(self.probe)
         self.addCleanup(self.endpoint.close)
-        agent_dir = self.root / "omp"
-        agent_dir.mkdir()
+        agent_dir = self.root / ".omp" / "agent"
+        agent_dir.mkdir(parents=True)
         (agent_dir / "models.yml").write_text(json.dumps({"providers": {"fixture": {
             "baseUrl": self.endpoint.url, "api": "openai-completions", "auth": "none",
             "models": [{"id": name, "name": name, "reasoning": False,
@@ -43,7 +42,17 @@ class NativeOmpTests(unittest.TestCase):
         (hermes_home / "config.yaml").write_text(json.dumps({
             "model": {"provider": "omp-acp", "default": "fixture/model-b",
                       "base_url": "acp://omp", "api_mode": "chat_completions"},
-            "plugins": {"enabled": ["omp-acp-provider"]},
+            "plugins": {
+                "enabled": ["omp-acp-provider"],
+                "entries": {"omp-acp-provider": {"settings": {
+                    "command": str(Path(command).resolve()),
+                    "args": [
+                        "acp", "--session-dir", str(self.root / "sessions with spaces"),
+                        "--no-title", "--no-lsp", "--no-extensions", "--no-skills", "--no-rules",
+                    ],
+                    "mcp_enabled": True,
+                }}},
+            },
             "memory": {"memory_enabled": False, "user_profile_enabled": False},
         }))
         preserve = {
@@ -56,17 +65,22 @@ class NativeOmpTests(unittest.TestCase):
         environment.update({
             "HOME": str(self.root), "HERMES_HOME": str(hermes_home),
             "PI_CODING_AGENT_DIR": str(agent_dir), "PYTHONDONTWRITEBYTECODE": "1",
-            "HERMES_OMP_ACP_COMMAND": str(Path(command).resolve()),
-            "HERMES_OMP_ACP_ARGS": shlex.join([
-                "acp", "--session-dir", str(self.root / "sessions"),
-                "--no-title", "--no-lsp", "--no-extensions", "--no-skills", "--no-rules",
-            ]),
         })
         isolation = patch.dict(os.environ, environment, clear=True)
         isolation.start()
         self.addCleanup(isolation.stop)
         self.profile = get_provider_profile("omp-acp")
         self.assertIsNotNone(self.profile, "Hermes did not discover the installed provider")
+
+    def configure(self, **settings):
+        from hermes_omp_acp.provider import register
+
+        config_path = Path(os.environ["HERMES_HOME"]) / "config.yaml"
+        config = json.loads(config_path.read_text())
+        config["plugins"]["entries"]["omp-acp-provider"]["settings"].update(settings)
+        config_path.write_text(json.dumps(config))
+        register()
+        self.profile = get_provider_profile("omp-acp")
 
     def assert_native_read_and_model_selection(self):
         self.assertFalse(self.endpoint.errors, self.endpoint.errors)
@@ -91,6 +105,79 @@ class NativeOmpTests(unittest.TestCase):
                 self.assertEqual("".join(choice.delta.content or "" for choice in choices), self.token)
                 self.assertEqual(choices[-1].finish_reason, "stop")
         asyncio.run(exercise())
+        self.assert_native_read_and_model_selection()
+
+    def test_provider_uses_the_mcp_server_from_the_omp_agent_directory(self):
+        self.endpoint.tool_name = "mcp__probe_token"
+        agent_dir = Path(os.environ["PI_CODING_AGENT_DIR"])
+        # A user-local executable must work even when a service omits ~/.local/bin.
+        local_bin = self.root / ".local" / "bin"
+        local_bin.mkdir(parents=True)
+        command = local_bin / "token-mcp"
+        command.symlink_to(Path(sys.executable).resolve())
+        (agent_dir / "mcp.json").write_text(json.dumps({"mcpServers": {
+            "probe": {
+                "command": "token-mcp",
+                "args": [str(Path(__file__).with_name("token_server.py")), str(self.probe)],
+            },
+        }}))
+        self.configure(mcp_enabled=False)
+        with patch.dict(os.environ, {"HERMES_OMP_ACP_MCP_ENABLED": "true"}):
+            with closing(self.profile.create_client(acp_cwd=str(self.root))) as client:
+                response = client.chat.completions.create(
+                    model="fixture/model-b", timeout=40,
+                    messages=[{"role": "user", "content": "Read the token through the probe MCP server."}],
+                )
+        self.assertEqual(response.choices[0].message.content, self.token)
+        self.assert_native_read_and_model_selection()
+
+    def test_default_omp_config_respects_disabled_server_precedence(self):
+        self.endpoint.tool_name = "mcp__probe_token"
+        marker = self.root / "blocked-server-started"
+        config = {
+            "mcpServers": {
+                "probe": {
+                    "enabled": False, "command": sys.executable,
+                    "args": [str(Path(__file__).with_name("token_server.py")), str(self.probe)],
+                },
+                "blocked": {
+                    "enabled": False, "command": sys.executable,
+                    "args": ["-c", f"from pathlib import Path; Path({str(marker)!r}).write_text('started')"],
+                },
+                "inactive": {"enabled": False},
+            },
+            "enabledServers": ["probe", "blocked"],
+            "disabledServers": ["blocked"],
+        }
+        (self.root / ".omp" / "agent" / "mcp.json").write_text(json.dumps(config))
+        with patch.dict(os.environ):
+            os.environ.pop("PI_CODING_AGENT_DIR")
+            with closing(self.profile.create_client(acp_cwd=str(self.root))) as client:
+                response = client.chat.completions.create(
+                    model="fixture/model-b", timeout=40,
+                    messages=[{"role": "user", "content": "Read the token through the probe MCP server."}],
+                )
+        self.assertEqual(response.choices[0].message.content, self.token)
+        self.assertFalse(marker.exists(), "A denied server must not be started by OMP")
+        self.assert_native_read_and_model_selection()
+
+    def test_disabled_mcp_does_not_start_configured_servers(self):
+        marker = self.root / "mcp-server-started"
+        agent_dir = Path(os.environ["PI_CODING_AGENT_DIR"])
+        (agent_dir / "mcp.json").write_text(json.dumps({"mcpServers": {
+            "blocked": {
+                "command": sys.executable,
+                "args": ["-c", f"from pathlib import Path; Path({str(marker)!r}).write_text('started')"],
+            },
+        }}))
+        self.configure(mcp_enabled=False)
+        with closing(self.profile.create_client(acp_cwd=str(self.root))) as client:
+            response = client.chat.completions.create(
+                model="fixture/model-b", timeout=40,
+                messages=[{"role": "user", "content": f"Read {self.probe} and return only its contents."}],
+            )
+        self.assertEqual(response.choices[0].message.content, self.token)
+        self.assertFalse(marker.exists(), "Disabling forwarding must prevent MCP server startup")
         self.assert_native_read_and_model_selection()
 
     def test_unknown_model_does_not_run_native_omp_inference(self):

@@ -17,26 +17,43 @@ permissions:
 
 jobs:
   compatibility:
-    name: Latest stable Hermes / OMP
+    name: ${{ matrix.name }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Latest stable Hermes / OMP
+            python: "3.14"
+            hermes: latest
+            omp: latest
+          - name: Minimum supported Hermes / OMP
+            python: "3.11"
+            hermes: v2026.9.21
+            omp: "15.7.6"
     steps:
       - uses: actions/checkout@v7.0.1
         with:
           ref: ${{ inputs.ref || github.sha }}
       - uses: astral-sh/setup-uv@v10.3.0
         with:
-          python-version: "3.14"
+          python-version: ${{ matrix.python }}
       - name: Build distributions
         run: |
           uv build --out-dir dist
           uvx --from twine twine check --strict dist/*
-      - name: Resolve the latest stable Hermes release
+      - name: Resolve the Hermes release
         id: hermes
         env:
           GH_TOKEN: ${{ github.token }}
+          HERMES_RELEASE: ${{ matrix.hermes }}
         run: |
-          tag=$(gh api repos/NousResearch/hermes-agent/releases/latest --jq '.tag_name')
+          if [ "$HERMES_RELEASE" = latest ]; then
+            tag=$(gh api repos/NousResearch/hermes-agent/releases/latest --jq '.tag_name')
+          else
+            tag="$HERMES_RELEASE"
+          fi
           sha=$(gh api "repos/NousResearch/hermes-agent/commits/$tag" --jq '.sha')
           echo "ref=$sha" >> "$GITHUB_OUTPUT"
           echo "Hermes release: $tag ($sha)"
@@ -52,11 +69,13 @@ jobs:
       - uses: oven-sh/setup-bun@v2.2.0
         with:
           bun-version: latest
-      - name: Install the latest OMP release
+      - name: Install the OMP release
+        env:
+          OMP_VERSION: ${{ matrix.omp }}
         run: |
           mkdir -p "$RUNNER_TEMP/omp"
           printf '{"private":true}\n' > "$RUNNER_TEMP/omp/package.json"
-          bun add --cwd "$RUNNER_TEMP/omp" "@oh-my-pi/pi-coding-agent@latest"
+          bun add --cwd "$RUNNER_TEMP/omp" "@oh-my-pi/pi-coding-agent@$OMP_VERSION"
           "$RUNNER_TEMP/omp/node_modules/.bin/omp" --version
           echo "OMP_INTEGRATION_COMMAND=$RUNNER_TEMP/omp/node_modules/.bin/omp" >> "$GITHUB_ENV"
       - name: Exercise the installed provider through Hermes
@@ -68,6 +87,7 @@ jobs:
           export PYTHONPATH="$GITHUB_WORKSPACE/.hermes-upstream"
           uv run --project .hermes-upstream --no-sync python -P -m unittest discover -s tests/integration -v
       - uses: actions/upload-artifact@v4
+        if: matrix.hermes == 'latest'
         with:
           name: provider-distributions
           path: dist/*
