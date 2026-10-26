@@ -76,3 +76,32 @@ Keep changes focused. Update relevant documentation when changing documented
 behavior. PR descriptions should include the problem, implementation, and
 verification results. Follow [CONTRIBUTING.md](CONTRIBUTING.md) for releases; do
 not publish packages or create release tags as a side effect of ordinary work.
+
+### Branch names
+
+- Create branches as `<type>/<short-description>`, using lowercase ASCII and
+  hyphen-separated words. Use the commit types below as branch prefixes.
+- Keep names descriptive and focused on one change, for example
+  `feat/model-discovery`, `fix/async-completion`, or `docs/agent-instructions`.
+- When tied to an issue, optionally include its number before the description:
+  `fix/42-model-selection`.
+- Do not rename an existing PR branch merely to adopt this convention; use it
+  for newly created branches.
+
+### Commits and PR titles
+
+- Use Conventional Commits: `<type>[optional scope][!]: <description>`.
+- Allowed types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`,
+  `build`, `ci`, `chore`, and `revert`. Choose the type by the actual change;
+  `style` is formatting only, not behavior.
+- Use a short, imperative English description without a trailing period. Keep
+  the subject under 72 characters. A scope is optional; when useful, name the
+  affected area, such as `provider`, `client`, or `release`.
+- Mark breaking changes with `!` before the colon or a `BREAKING CHANGE:` footer,
+  and explain the incompatible behavior and required migration in the body.
+- Keep each commit focused on one logical change. Reference related issues in
+  the body or footer when applicable.
+- Use the same format for PR titles so squash merges retain a conventional
+  subject. Examples: `docs: add shared agent instructions`,
+  `fix(client): reject mismatched model selection`, and
+  `refactor!: change provider configuration`.
