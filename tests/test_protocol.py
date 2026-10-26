@@ -9,6 +9,7 @@ from contextlib import closing
 from unittest.mock import patch
 
 from agent.error_classifier import classify_api_error
+from agent.runtime_cwd import reset_session_cwd, set_session_cwd
 from providers import get_provider_profile
 
 from hermes_omp_acp.provider import register
@@ -80,12 +81,16 @@ class ProtocolNegotiationTests(unittest.TestCase):
                 self.assert_peer_reaped()
 
     def test_model_discovery_rejects_incompatible_negotiation(self):
-        with patch.dict(os.environ, {
-            "HERMES_OMP_ACP_ARGS": shlex.join([
-                str(Path(__file__).with_name("protocol_peer.py")), "unsupported-version",
-            ]),
-        }):
-            self.assertIsNone(self.profile.fetch_models(timeout=5))
+        token = set_session_cwd(str(self.home))
+        try:
+            with patch.dict(os.environ, {
+                "HERMES_OMP_ACP_ARGS": shlex.join([
+                    str(Path(__file__).with_name("protocol_peer.py")), "unsupported-version",
+                ]),
+            }):
+                self.assertIsNone(self.profile.fetch_models(timeout=5))
+        finally:
+            reset_session_cwd(token)
         self.assertFalse((self.home / "session-created").exists())
         self.assert_peer_reaped()
 
