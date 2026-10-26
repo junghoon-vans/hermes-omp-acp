@@ -196,6 +196,15 @@ class ProviderTests(unittest.TestCase):
                 self.assertEqual(choices[-1].finish_reason, "stop")
         asyncio.run(exercise())
 
+    def test_large_command_notification_does_not_interrupt_completion(self):
+        args = shlex.join([str(Path(__file__).with_name("acp_peer.py")), "large-commands"])
+        with patch.dict(os.environ, {"HERMES_OMP_ACP_ARGS": args}), closing(self.client()) as client:
+            response = client.chat.completions.create(
+                model="fixture/model", messages=[{"role": "user", "content": "Do the task"}],
+                timeout=5,
+            )
+        self.assertEqual(response.choices[0].message.content, "first second")
+
     def test_immediate_burst_preserves_ordered_text_reasoning_and_stream_stop(self):
         args = shlex.join([str(Path(__file__).with_name("acp_peer.py")), "burst"])
         with patch.dict(os.environ, {"HERMES_OMP_ACP_ARGS": args}), closing(self.client()) as client:

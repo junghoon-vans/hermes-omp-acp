@@ -39,6 +39,10 @@ from agent.runtime_cwd import resolve_agent_cwd
 from .mcp import load_mcp_servers
 
 
+# Command catalogs and tool results can exceed asyncio's default 64 KiB line limit.
+_ACP_STREAM_LIMIT = 16 * 1024 * 1024
+
+
 def _resolve_command() -> str:
     return os.getenv("HERMES_OMP_ACP_COMMAND", "").strip() or "omp"
 
@@ -425,7 +429,11 @@ class ACPRuntime:
                     *self._acp_args,
                     env=_build_subprocess_env(),
                     cwd=self._acp_cwd,
-                    transport_kwargs={"stderr": aio_subprocess.PIPE, "shutdown_timeout": 2.0},
+                    transport_kwargs={
+                        "stderr": aio_subprocess.PIPE,
+                        "shutdown_timeout": 2.0,
+                        "limit": _ACP_STREAM_LIMIT,
+                    },
                     use_unstable_protocol=True,
                     observers=[callbacks.observe],
                 ) as (connection, spawned_process):

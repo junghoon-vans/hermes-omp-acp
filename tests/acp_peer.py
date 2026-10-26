@@ -13,6 +13,7 @@ from acp import (
     update_agent_thought_text,
 )
 from acp.schema import (
+    AvailableCommandsUpdate,
     InitializeResponse,
     NewSessionResponse,
     PermissionOption,
@@ -78,6 +79,17 @@ class Peer(Agent):
             raise ValueError("Model selection rejected")
         if self.mode == "timeout":
             await asyncio.sleep(10)
+        if self.mode == "large-commands":
+            await self.client.session_update(
+                session_id=session_id,
+                update=AvailableCommandsUpdate.model_validate({
+                    "sessionUpdate": "available_commands_update",
+                    "availableCommands": [{
+                        "name": "large-command",
+                        "description": "x" * 70_000,
+                    }],
+                }),
+            )
         if self.mode == "mismatch":
             return SetSessionConfigOptionResponse.model_validate({
                 "configOptions": [{**OPTIONS[0], "currentValue": "fixture/default"}],
