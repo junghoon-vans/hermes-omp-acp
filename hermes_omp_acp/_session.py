@@ -887,7 +887,7 @@ class ACPRuntime:
                 with suppress(asyncio.CancelledError):
                     await stderr_task
 
-    async def run(self, prompt: str, model: str | None, timeout_seconds: float) -> tuple[str, str]:
+    async def run(self, prompt: str, model: str | None, timeout_seconds: float) -> tuple[str, str, str]:
         request_context = _RequestContext()
         try:
             async with asyncio.timeout(timeout_seconds):
@@ -943,7 +943,7 @@ class ACPRuntime:
                                 prompt_dispatched=False,
                                 failure_kind="deterministic",
                             )
-                    await self._request(
+                    prompt_response = await self._request(
                         state,
                         "session/prompt",
                         state.connection.prompt(
@@ -951,7 +951,11 @@ class ACPRuntime:
                             prompt=[TextContentBlock(type="text", text=prompt)],
                         ),
                     )
-                    return "".join(state.callbacks.text_parts), "".join(state.callbacks.reasoning_parts)
+                    return (
+                        "".join(state.callbacks.text_parts),
+                        "".join(state.callbacks.reasoning_parts),
+                        str(_as_mapping(prompt_response).get("stopReason") or ""),
+                    )
         except asyncio.CancelledError as exc:
             if request_context.cancel_requested:
                 raise ACPCancelledError(
