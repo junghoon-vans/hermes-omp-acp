@@ -73,95 +73,14 @@ For local source installation and development, see [CONTRIBUTING.md](CONTRIBUTIN
 
 ## Configuration
 
-| Environment variable | Default | Purpose |
-| --- | --- | --- |
-| `HERMES_OMP_ACP_COMMAND` | `omp` | Override the executable, for example with an absolute path. |
-| `HERMES_OMP_ACP_ARGS` | `acp` | Replace the complete argument list; parsed with shell-style quoting. Include `acp` when overriding. |
-| `HERMES_OMP_ACP_MCP_ENABLED` | `true` | Enable forwarding OMP's global MCP definitions. Set `false` to skip the MCP file and send no MCP servers. |
-| `PI_CODING_AGENT_DIR` | `~/.omp/agent` | Select OMP's agent directory. The provider reads `mcp.json` from this directory; OMP also uses it for its own agent data. |
-
-These variables must be available to the Hermes process, including a gateway launched as a service.
-
-### MCP servers
-
-Keep MCP server definitions in OMP's configuration, not in a second Hermes `mcp_servers` list. Forwarding is **enabled by default**: for each completion, the provider reads the OMP file and supplies the active server definitions to `session/new.mcpServers`. OMP connects to the servers and executes their tools.
-
-To disable forwarding without editing OMP's configuration:
-
-```sh
-export HERMES_OMP_ACP_MCP_ENABLED=false
-```
-
-Set `true` or unset the variable to enable it again. Values are case-insensitive with surrounding whitespace ignored: `0`/`false`/`no`/`off` disable; `1`/`true`/`yes`/`on`, an empty value, or an unset variable enable. Other values reject completions with a configuration error. Apply the variable to the Hermes process and restart a running gateway.
-
-When disabled, the provider does not read or validate `mcp.json`, resolve MCP commands, or forward any server definitions. This leaves OMP's original file, ordinary OMP sessions, native OMP tools, and Hermes-managed tools unchanged.
-
-| Environment | MCP file read by the provider |
-| --- | --- |
-| `PI_CODING_AGENT_DIR` unset or empty | `~/.omp/agent/mcp.json` |
-| `PI_CODING_AGENT_DIR` set | `$PI_CODING_AGENT_DIR/mcp.json` |
-
-The directory supports `~` expansion; the filename is always `mcp.json`. Set the variable in the environment that launches Hermes, including its service configuration when using a gateway. This selects OMP's agent directory, not just an alternative MCP file.
-
-For example, an existing OMP file can define Aside as:
-
-```json
-{
-  "mcpServers": {
-    "aside": {
-      "command": "aside",
-      "args": ["mcp"]
-    }
-  }
-}
-```
-
-The provider resolves stdio executables to absolute paths, checking a literal server `env.PATH`, then the Hermes process's `PATH` with `~/.local/bin` as a fallback. This does not change the gateway's PATH or install missing commands.
-
-The toggle is checked for each completion; the MCP file is reread only when forwarding is enabled. A missing file supplies no MCP servers; a missing file in a custom directory does not trigger a retry at the default location. Model discovery does not read the toggle or MCP file or start MCP servers, so a working model picker does not prove MCP connectivity.
-
-Only this global file is read: project files and other tools' MCP configurations are not discovered. Stdio, HTTP, and SSE definitions can be forwarded; HTTP and SSE require support advertised by the OMP ACP agent.
-
-**MCP tool forwarding requires OMP 15.7.6; reuse of stored MCP OAuth credentials requires OMP 18.12.6 or later.** The package minimum remains 15.7.6. OAuth reuse also requires a matching OMP profile and server URL, accessible stored credentials, and no explicit `Authorization` header. It does not forward custom `auth`/`oauth` objects or perform a new login.
-
-This is not a full-fidelity export of OMP settings: server-specific timeouts, working directories, and other OMP-only fields are omitted with warnings. In the source-reviewed OMP 18.12.6 ACP path, server-provided instructions are not wired into the model prompt at all; omitting `instructions: false` does **not** imply they are enabled. See [MCP compatibility limits](docs/model-provider/limitations.md#mcp-configuration-compatibility) for the field/version matrix, OAuth conditions, and global timeout alternative. For missing tools or authentication failures, see [MCP troubleshooting](docs/model-provider/troubleshooting.md#mcp-tools-missing).
-
-## Official delegation model routes
-
-To choose an OMP model per subagent task, use the official [Advanced Delegation plugin](https://github.com/NousResearch/hermes-official-plugins/tree/main/advanced-delegation), which requires **Hermes 0.22.5 or later**. Install and enable both plugins in the profile that delegates:
-
-```sh
-hermes plugins install advanced-delegation
-hermes plugins enable advanced-delegation
-```
-
-The `omp-acp-provider` installation and activation steps above are also required. Merge this separate delegation configuration into that profile's `config.yaml`:
-
-```yaml
-delegation:
-  backend: model_map
-  backends:
-    model_map:
-      options:
-        - name: omp-deep
-          description: Complex code analysis and implementation.
-          provider: omp-acp
-          model: openai-codex/gpt-6.1-sol
-      default: omp-deep
-```
-
-Replace `model` with an OMP model ID available to your account. Start a new Hermes session after changing routes.
-
-**Do not copy `base_url: acp://omp` from the main-model example into a delegation route.** Hermes's delegation resolver treats an explicit `base_url` as a custom endpoint; use `provider: omp-acp` and let the provider resolve its executable and arguments.
-
-This routes Hermes subagents to OMP models. The provider does not manage retained OMP sessions or worktrees; each completion starts a new ACP session. Route-level `reasoning_effort` and `service_tier` are not mapped to OMP settings by this provider.
+See [Configuration](docs/configuration.md) for per-profile plugin settings, environment overrides, MCP forwarding, and delegation model routes. Launch options default to `omp acp`; MCP forwarding is enabled by default.
 
 ## Documentation
 
-- [How it works](docs/model-provider/implementation.md)
-- [Known limitations](docs/model-provider/limitations.md)
-- [Troubleshooting](docs/model-provider/troubleshooting.md)
-- [Verification](docs/model-provider/verification.md)
+- [How it works](docs/implementation.md)
+- [Known limitations](docs/limitations.md)
+- [Troubleshooting](docs/troubleshooting.md)
+- [Verification](docs/verification.md)
 
 ## Development
 

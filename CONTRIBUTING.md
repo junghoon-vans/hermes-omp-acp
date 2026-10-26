@@ -33,7 +33,7 @@ Set `OMP_INTEGRATION_COMMAND` to an absolute executable path to test a specific 
 
 The suite creates isolated homes. Keep any manual Hermes or OMP checks isolated too: point `HERMES_HOME`, `PI_CODING_AGENT_DIR`, and any other profile/data paths at temporary directories, and do not run tests against or modify a production or personal profile.
 
-CI runs both the unit and native integration suites against the provider wheel in two combinations: the latest stable Hermes and latest OMP with Python 3.14, and Hermes 0.21.4 (`v2026.9.21`) with OMP 15.7.6 and Python 3.11. Recheck the minimum combination locally when changing compatibility-sensitive code. See [verification](docs/model-provider/verification.md) for the CI scope and minimum-version boundaries.
+CI runs both the unit and native integration suites against the provider wheel in two combinations: the latest stable Hermes and latest OMP with Python 3.14, and Hermes 0.21.4 (`v2026.9.21`) with OMP 15.7.6 and Python 3.11. Recheck the minimum combination locally when changing compatibility-sensitive code. See [verification](docs/verification.md) for the CI scope and minimum-version boundaries.
 
 ## Build the distribution
 

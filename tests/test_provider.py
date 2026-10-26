@@ -1,9 +1,11 @@
 import asyncio
 from concurrent.futures import ThreadPoolExecutor, wait
 from contextlib import closing
+import json
 import os
 from pathlib import Path
 import shlex
+import shutil
 import sys
 import tempfile
 import time
@@ -32,6 +34,71 @@ class ProviderTests(unittest.TestCase):
         self.addCleanup(environment.stop)
         register()
         self.profile = get_provider_profile("omp-acp")
+
+    def configure(self, **settings):
+        (self.home / "config.yaml").write_text(json.dumps({
+            "plugins": {"enabled": ["omp-acp-provider"],
+                        "entries": {"omp-acp-provider": {"settings": settings}}},
+        }))
+        register()
+        self.profile = get_provider_profile("omp-acp")
+
+    def test_settings_launch_options_preserve_spaces_and_gateway_placeholders(self):
+        peer = self.home / "ACP peer with spaces.py"
+        shutil.copyfile(Path(__file__).with_name("acp_peer.py"), peer)
+        with patch.dict(os.environ):
+            os.environ.pop("HERMES_OMP_ACP_COMMAND")
+            os.environ.pop("HERMES_OMP_ACP_ARGS")
+            self.configure(command=sys.executable, args=[str(peer)])
+            self.assertEqual(self.profile.fetch_models(timeout=5), ["fixture/model"])
+            with closing(self.profile.create_client(
+                command=None, args=[], acp_cwd=str(self.home),
+            )) as client:
+                response = client.chat.completions.create(
+                    model="fixture/model", messages=[{"role": "user", "content": "Do the task"}],
+                    timeout=5,
+                )
+            self.assertEqual(response.choices[0].message.content, "first second")
+
+    def test_environment_overrides_configured_launch_options(self):
+        self.configure(command=str(self.home / "missing-omp"), args=["missing-argument"])
+        self.assertEqual(self.profile.fetch_models(timeout=5), ["fixture/model"])
+        with closing(self.client()) as client:
+            response = client.chat.completions.create(
+                model="fixture/model", messages=[{"role": "user", "content": "Do the task"}],
+                timeout=5,
+            )
+        self.assertEqual(response.choices[0].message.content, "first second")
+
+    def test_empty_configured_args_support_an_executable_wrapper(self):
+        wrapper = self.home / "OMP wrapper with spaces"
+        wrapper.write_text("#!/bin/sh\nexec " + shlex.join([
+            sys.executable, str(Path(__file__).with_name("acp_peer.py")),
+        ]) + "\n")
+        wrapper.chmod(0o755)
+        with patch.dict(os.environ):
+            os.environ.pop("HERMES_OMP_ACP_COMMAND")
+            os.environ.pop("HERMES_OMP_ACP_ARGS")
+            self.configure(command=str(wrapper), args=[])
+            with closing(self.client()) as client:
+                response = client.chat.completions.create(
+                    model="fixture/model", messages=[{"role": "user", "content": "Do the task"}],
+                    timeout=5,
+                )
+            self.assertEqual(response.choices[0].message.content, "first second")
+
+    def test_invalid_plugin_settings_are_rejected(self):
+        for settings, key in (
+            ({"command": ""}, "command"),
+            ({"command": ["omp"]}, "command"),
+            ({"args": "acp --no-title"}, "args"),
+            ({"args": ["acp", 1]}, "args"),
+            ({"args": None}, "args"),
+            ({"mcp_enabled": "false"}, "mcp_enabled"),
+            ({"mcp_enabled": 0}, "mcp_enabled"),
+        ):
+            with self.subTest(settings=settings), self.assertRaisesRegex(ValueError, key):
+                self.configure(**settings)
 
     def client(self):
         return self.profile.create_client(acp_cwd=str(self.home))
@@ -235,6 +302,29 @@ class ProviderTests(unittest.TestCase):
                             model="fixture/model", messages=[{"role": "user", "content": "Do the task"}],
                             timeout=5,
                         )
+
+    def test_mcp_setting_skips_config_and_environment_can_reenable_it(self):
+        agent_dir = Path(os.environ["PI_CODING_AGENT_DIR"])
+        agent_dir.mkdir()
+        (agent_dir / "mcp.json").write_text('{"mcpServers": broken')
+        self.configure(mcp_enabled=False)
+        self.assertIn("fixture/model", self.profile.fetch_models(timeout=5))
+        with closing(self.client()) as client:
+            for value in ("", "   "):
+                with self.subTest(unset_override=value), patch.dict(
+                    os.environ, {"HERMES_OMP_ACP_MCP_ENABLED": value},
+                ):
+                    response = client.chat.completions.create(
+                        model="fixture/model", messages=[{"role": "user", "content": "Do the task"}],
+                        timeout=5,
+                    )
+                    self.assertEqual(response.choices[0].message.content, "first second")
+            with patch.dict(os.environ, {"HERMES_OMP_ACP_MCP_ENABLED": "true"}):
+                with self.assertRaisesRegex(RuntimeError, "MCP.*malformed"):
+                    client.chat.completions.create(
+                        model="fixture/model", messages=[{"role": "user", "content": "Do the task"}],
+                        timeout=5,
+                    )
 
     def test_invalid_mcp_environment_toggle_blocks_tasks(self):
         with patch.dict(os.environ, {"HERMES_OMP_ACP_MCP_ENABLED": "typo"}):

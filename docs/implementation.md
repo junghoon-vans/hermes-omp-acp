@@ -7,10 +7,10 @@
 
 ## Module responsibilities
 
-- [`client.py`](../../hermes_omp_acp/client.py) exposes the Hermes-compatible client and adapts synchronous and asynchronous callers.
-- [`_bridge.py`](../../hermes_omp_acp/_bridge.py) converts messages and tool schemas into prompts, then converts text and reasoning into completion objects and buffered stream chunks.
-- [`_session.py`](../../hermes_omp_acp/_session.py) owns ACP negotiation, callbacks and filesystem policy, subprocesses, stderr, deadlines, and cancellation.
-- [`mcp.py`](../../hermes_omp_acp/mcp.py) translates the global OMP MCP configuration into ACP server definitions; `_session.py` sends them when creating a completion session.
+- [`client.py`](../hermes_omp_acp/client.py) exposes the Hermes-compatible client and adapts synchronous and asynchronous callers.
+- [`_bridge.py`](../hermes_omp_acp/_bridge.py) converts messages and tool schemas into prompts, then converts text and reasoning into completion objects and buffered stream chunks.
+- [`_session.py`](../hermes_omp_acp/_session.py) owns ACP negotiation, callbacks and filesystem policy, subprocesses, stderr, deadlines, and cancellation.
+- [`mcp.py`](../hermes_omp_acp/mcp.py) translates the global OMP MCP configuration into ACP server definitions; `_session.py` sends them when creating a completion session.
 
 The client calls the runtime's `list_models`, `run`, and `close` interfaces. SDK connections, child processes, callback buffers, and stderr tasks stay inside the runtime rather than crossing the interface as a tuple. A single runtime owns the active-session tracking for each client.
 
@@ -30,11 +30,11 @@ The client uses an explicit session workspace when supplied, otherwise Hermes's 
 
 Native ACP permission requests are cancelled by the plugin's own callback, preserving the previous behavior. See [Known limitations](limitations.md#native-acp-approval-requests) for the permission and filesystem policies.
 
-Compatibility still depends on Hermes's shared provider, bridge, environment, and safety interfaces, plus the SDK version range declared in [package metadata](../../pyproject.toml). It no longer depends on the internal `CopilotACPClient` interface. See [Verification](verification.md) for the exercised combinations and scenarios.
+Compatibility still depends on Hermes's shared provider, bridge, environment, and safety interfaces, plus the SDK version range declared in [package metadata](../pyproject.toml). It no longer depends on the internal `CopilotACPClient` interface. See [Verification](verification.md) for the exercised combinations and scenarios.
 
 ## MCP configuration flow
 
-1. Before spawning OMP for a completion, check `HERMES_OMP_ACP_MCP_ENABLED` (enabled when unset or empty). A false value returns an empty server list without reading the file or resolving commands; an invalid value aborts the completion. When enabled, read `mcp.json` from `PI_CODING_AGENT_DIR`, or `~/.omp/agent` when the directory variable is unset or empty. Resolve `~` in the directory. No project or third-party discovery is performed.
+1. Before spawning OMP for a completion, resolve the `mcp_enabled` plugin setting with a non-empty `HERMES_OMP_ACP_MCP_ENABLED` override taking precedence. The default is enabled. A false value returns an empty server list without reading the file or resolving commands; an invalid environment value aborts the completion. When enabled, read `mcp.json` from `PI_CODING_AGENT_DIR`, or `~/.omp/agent` when the directory variable is unset or empty. Resolve `~` in the directory. No project or third-party discovery is performed. See [Configuration](configuration.md) for settings and restart behavior.
 2. Select active entries from `mcpServers`: `disabledServers` wins, then `enabledServers` can override an entry's `enabled: false`. Other entries are enabled by default.
 3. Convert the selected definitions to ACP transport records and resolve stdio commands to absolute paths. A missing file produces an empty list. Invalid configuration or an unresolved active command aborts before OMP is spawned.
 4. Initialize the ACP connection and check the agent's HTTP/SSE capabilities before sending definitions that use those transports.

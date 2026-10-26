@@ -12,7 +12,7 @@ When OMP sends a `session/request_permission` request, the plugin returns:
 
 This native ACP request is not connected to a Slack approval card. The plugin does not wait for a person's decision or select an Allow once / Always allow option for OMP. An operation waiting for that permission receives cancellation instead.
 
-This is an explicit policy of the standalone client, not an inherited Copilot handler. The plugin cannot obtain interactive approval through this callback, so it cancels the request. See the [session callbacks](../../hermes_omp_acp/_session.py).
+This is an explicit policy of the standalone client, not an inherited Copilot handler. The plugin cannot obtain interactive approval through this callback, so it cancels the request. See the [session callbacks](../hermes_omp_acp/_session.py).
 
 Hermes-owned tool calls are a separate path: when a model response returns a tool call for Hermes to execute, Hermes applies its own tool and approval mechanisms. That does not establish approval support for OMP's native ACP requests.
 
@@ -27,11 +27,11 @@ The plugin's ACP filesystem callbacks also enforce these checks:
 - File content returned by reads is passed through Hermes's secret redaction.
 - A `fs/write_text_file` request that requires interactive write approval is rejected by the bridge.
 
-These checks describe the ACP filesystem callbacks, not every possible OMP tool execution path. The [session implementation](../../hermes_omp_acp/_session.py) applies Hermes's shared safety and redaction helpers.
+These checks describe the ACP filesystem callbacks, not every possible OMP tool execution path. The [session implementation](../hermes_omp_acp/_session.py) applies Hermes's shared safety and redaction helpers.
 
 ## MCP configuration compatibility
 
-When forwarding is enabled (the default), the provider reads only the global OMP `mcp.json`. It does not reproduce OMP's project-file, plugin, or third-party configuration discovery. Set `HERMES_OMP_ACP_MCP_ENABLED=false` to skip file loading and send an empty `mcpServers` list without changing OMP's configuration. This controls this provider's MCP forwarding, not native OMP tools or Hermes-managed tools. See [MCP servers](../../README.md#mcp-servers) for accepted toggle values, path selection, and missing-file behavior.
+When forwarding is enabled (the default), the provider reads only the global OMP `mcp.json`. It does not reproduce OMP's project-file, plugin, or third-party configuration discovery. Set the plugin's `mcp_enabled: false` or override it with `HERMES_OMP_ACP_MCP_ENABLED=false` to skip file loading and send an empty `mcpServers` list without changing OMP's configuration. This controls this provider's MCP forwarding, not native OMP tools or Hermes-managed tools. See [MCP servers](configuration.md#mcp-servers) for toggle precedence, path selection, and missing-file behavior.
 
 The supported transport fields are:
 

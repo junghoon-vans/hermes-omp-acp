@@ -2,7 +2,7 @@
 
 ## Executable unavailable
 
-Check `command -v omp` in the environment that launches Hermes. For a gateway service, set `HERMES_OMP_ACP_COMMAND` to the executable's absolute path.
+Check `command -v omp` in the environment that launches Hermes. For a gateway service, set the plugin's `command` to the executable's absolute path, or override it with `HERMES_OMP_ACP_COMMAND`. Restart Hermes after changing plugin settings.
 
 ## Provider missing
 
@@ -18,7 +18,7 @@ Confirm OMP authentication works and the selected model is available to that acc
 
 A successful model picker does not check MCP connectivity: model discovery deliberately sends no MCP servers. Check the environment of the process that launches Hermes, not just an interactive terminal:
 
-First check `HERMES_OMP_ACP_MCP_ENABLED`. `false`, `0`, `no`, or `off` intentionally disables forwarding. Unset it or set `true` to enable forwarding; restart a running gateway after changing its environment. The provider does not change the original OMP file.
+First check the plugin's `mcp_enabled` setting and `HERMES_OMP_ACP_MCP_ENABLED` override. An explicit `false`, `0`, `no`, or `off` environment value disables forwarding; unset or empty uses the plugin setting, which defaults to `true`. Set the environment override to `true` to force forwarding on. Restart a running gateway after changing settings or its environment. The provider does not change the original OMP file.
 
 1. Determine whether `PI_CODING_AGENT_DIR` is set. The provider reads `<directory>/mcp.json`, or `~/.omp/agent/mcp.json` when unset or empty.
 2. Confirm that file exists. A missing file results in no MCP servers; a missing custom-path file does not fall back to the default path.
@@ -38,7 +38,7 @@ The provider checks a literal server `env.PATH`, then the process PATH and `~/.l
 
 When forwarding is enabled, malformed JSON, a non-object configuration, or an invalid active server definition stops the completion before OMP is spawned. Fix the selected file's structure and field types. Model discovery can still succeed because it does not read this file. If MCP is intentionally unnecessary for this provider, `HERMES_OMP_ACP_MCP_ENABLED=false` skips the file entirely.
 
-An error naming `HERMES_OMP_ACP_MCP_ENABLED` means the toggle itself is invalid. Use `true`/`false`, `1`/`0`, `yes`/`no`, or `on`/`off` (case-insensitive); unset or empty means enabled. Model discovery skips this check too.
+An error naming `HERMES_OMP_ACP_MCP_ENABLED` means the override itself is invalid. Use `true`/`false`, `1`/`0`, `yes`/`no`, or `on`/`off` (case-insensitive); unset or empty falls back to the plugin setting. Model discovery skips this check too.
 
 If the error says the agent does not support a configured HTTP or SSE transport, check the OMP version and the capabilities it advertises during ACP initialization. Do not infer transport support from the model list.
 
@@ -66,4 +66,4 @@ The value is in milliseconds; `0` disables OMP's MCP timeout. The provider's ove
 
 In the source-reviewed OMP 18.12.6 ACP implementation, MCP server instructions are not wired into the model prompt. Dropping `instructions: false` does not enable them, and setting `instructions: true` does not add them. Tool descriptions and tool results remain separate sources of model context. See [MCP server instructions](limitations.md#mcp-server-instructions); do not diagnose this from the dropped-field warning alone.
 
-See [Configuration](../../README.md#configuration) for the supported environment variables.
+See [Configuration](configuration.md) for plugin settings and supported environment variables.
