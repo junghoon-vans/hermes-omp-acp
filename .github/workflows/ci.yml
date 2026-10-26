@@ -24,14 +24,26 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: Latest stable Hermes / OMP
+          - name: Latest Hermes / OMP, minimum SDK
             python: "3.14"
             hermes: latest
             omp: latest
-          - name: Minimum supported Hermes / OMP
+            acp_sdk_constraint: "==0.10.1"
+          - name: Latest Hermes / OMP, latest SDK
+            python: "3.14"
+            hermes: latest
+            omp: latest
+            acp_sdk_constraint: ">=0.10.1,<0.11"
+          - name: Minimum Hermes / OMP, minimum SDK
             python: "3.11"
             hermes: v2026.9.21
             omp: "15.7.6"
+            acp_sdk_constraint: "==0.10.1"
+          - name: Minimum Hermes / OMP, latest SDK
+            python: "3.11"
+            hermes: v2026.9.21
+            omp: "15.7.6"
+            acp_sdk_constraint: ">=0.10.1,<0.11"
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -64,8 +76,10 @@ jobs:
           path: .hermes-upstream
       - name: Prepare the official Hermes runtime
         run: uv sync --project .hermes-upstream --extra acp --locked --no-install-project
-      - name: Install the provider wheel
-        run: uv pip install --python .hermes-upstream/.venv/bin/python --no-deps dist/*.whl
+      - name: Install the provider wheel with the selected SDK
+        env:
+          ACP_SDK_CONSTRAINT: ${{ matrix.acp_sdk_constraint }}
+        run: uv pip install --python .hermes-upstream/.venv/bin/python dist/*.whl "agent-client-protocol$ACP_SDK_CONSTRAINT"
       - uses: oven-sh/setup-bun@v2.2.0
         with:
           bun-version: latest
