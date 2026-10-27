@@ -23,6 +23,12 @@ def main():
         method = request.get("method")
         request_id = request.get("id")
 
+        if mode == "eof-initialize" and method == "initialize":
+            (Path.cwd() / "sdk-compat-eof.ready").write_text(str(os.getpid()), encoding="ascii")
+            os.close(sys.stdout.fileno())
+            while True:
+                time.sleep(1)
+
         if method == "initialize":
             respond(request_id, {
                 "protocolVersion": PROTOCOL_VERSION,
@@ -36,6 +42,11 @@ def main():
                     "availableModels": [{"modelId": "fixture/model", "name": "Fixture"}],
                 },
             })
+            if mode == "eof-after-session":
+                os.close(sys.stdout.fileno())
+                for later_request in sys.stdin:
+                    (Path.cwd() / "sdk-compat-post-eof.request").write_text(later_request)
+                return
         elif method == "session/set_model":
             respond(request_id, {})
         elif method == "session/prompt":

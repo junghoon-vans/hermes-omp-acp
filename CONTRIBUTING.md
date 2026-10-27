@@ -4,20 +4,28 @@ Run development commands from the repository root. This repository builds one Py
 
 ## Package boundary and Python environment
 
-The root package builds `hermes-omp-acp`, requires Python 3.11 or later, and declares `agent-client-protocol>=0.10.1,<0.11` as its transport dependency. It runs inside a Hermes environment and reuses Hermes's shared provider, completion bridge, environment, and safety interfaces, not its Copilot ACP client. Use a Python version supported by the Hermes release being checked.
+The root package builds `hermes-omp-acp`, requires Python 3.11 or later, and declares `agent-client-protocol>=0.9.0,<0.10.0` as its transport dependency. Official Hermes source pins `agent-client-protocol==0.9.0` in its `acp` extra, which satisfies the provider's range. Install the provider in the same Python environment as Hermes; do not override Hermes's SDK pin. The provider reuses Hermes's shared provider, completion bridge, environment, and safety interfaces, not its Copilot ACP client. Use a Python version supported by the Hermes release being checked.
 
 For supported user-facing minimums, see the [requirements](README.md#requirements).
 
 ## Provider unit tests
 
-Run provider tests with the Python environment for a supported Hermes checkout. Hermes's locked `acp` extra can supply an older SDK; install the provider with dependencies afterward to resolve its supported SDK range. From the repository root, set `HERMES_SOURCE` to a Hermes source checkout and use its `uv` environment:
+Run provider tests in a disposable Hermes source checkout and Python environment, not a PM- or Nix-managed installation. The Hermes source declares its exact SDK pin in `pyproject.toml`; resolve its dependencies and the editable provider source together. From the repository root, set `HERMES_SOURCE` to that checkout and choose a Python version supported by it:
 
 ```sh
-uv sync --project "$HERMES_SOURCE" --extra acp --locked --no-install-project
-uv pip install --python "$HERMES_SOURCE/.venv/bin/python" -e .
+REPO_ROOT=$PWD
+HERMES_PYTHON_VERSION=3.14
+uv venv --python "$HERMES_PYTHON_VERSION" "$HERMES_SOURCE/.venv"
+(
+  cd "$HERMES_SOURCE"
+  uv pip install --python .venv/bin/python \
+    -r pyproject.toml --extra acp -e "$REPO_ROOT"
+)
 export PYTHONPATH="$HERMES_SOURCE"
 uv run --project "$HERMES_SOURCE" --no-sync python -P -m unittest discover -s tests -v
 ```
+
+This local workflow tests the provider source in editable mode and imports Hermes from its source checkout. It jointly resolves the Hermes project dependencies and editable provider requirements, but it is not a full PM-managed source-plugin admission test. CI separately installs the built provider wheel with Hermes source dependencies and runs an isolated official PM Git-install job.
 
 These deterministic tests exercise model discovery and strict selection, synchronous and asynchronous callers, ordered buffered streaming, readiness-gated concurrent sessions, timeout/cancellation/close with child-process reaping, permission cancellation, safe file write/read-back, filesystem restrictions/redaction, reasoning/tool-call conversion, and missing or exited executables. They need no model credentials and use the public provider/client interface rather than private module imports. Provider minimums are Hermes 0.21.4 and OMP 15.7.6, with Python matching Hermes.
 
@@ -33,7 +41,9 @@ Set `OMP_INTEGRATION_COMMAND` to an absolute executable path to test a specific 
 
 The suite creates isolated homes. Keep any manual Hermes or OMP checks isolated too: point `HERMES_HOME`, `PI_CODING_AGENT_DIR`, and any other profile/data paths at temporary directories, and do not run tests against or modify a production or personal profile.
 
-CI runs both the unit and native integration suites against the provider wheel with the latest stable Hermes and latest OMP on Python 3.14, and Hermes 0.21.4 (`v2026.9.21`) with OMP 15.7.6 on Python 3.11. Each combination checks SDK 0.10.1 and the latest SDK within the declared range. Recheck the minimum combination locally when changing compatibility-sensitive code. See [verification](docs/verification.md) for the CI scope and minimum-version boundaries.
+CI runs both suites against the provider wheel in three Hermes/OMP environments: Hermes 0.21.4 (`v2026.9.21`) with OMP 15.7.6 on Python 3.11; the dynamically resolved latest Hermes release with latest OMP on Python 3.14 using the `acp` extra; and Hermes 0.22.5 at pinned commit [`bf0203a`](https://github.com/NousResearch/hermes-agent/commit/bf0203a794a07aac3ff764972ab9087baa4e4f4e) with latest OMP on Python 3.14 using the `all` extra. Latest currently resolves to 0.22.5, but exercises `acp` while the fixed commit exercises `all`. Each job jointly resolves the provider wheel and unmodified Hermes source `pyproject.toml`, checks the installed SDK against both the original Hermes `acp` requirement and the provider requirement, and rejects changes to upstream `pyproject.toml` or `uv.lock`. CI runs `uv pip check`; for a nonzero report it accepts only incompatibilities exactly accounted for by the official Hermes lock's declared overrides using Hermes's `pm.pip_check` helper. Unrecognized reports fail, and a failing check without that helper fails raw. There is no separate SDK-version matrix because the official compatibility points pin 0.9.0. A separate installed-wheel discovery/import and native ACP catalog smoke makes no model call. See [verification](docs/verification.md) for test scope and installation limits.
+
+The independent PM job bootstraps unmodified Hermes 0.22.5 (`bf0203a`) with `acp`, installs the current exact Git revision from a disposable bare `file://` remote using `hermes plugins install --ref <sha> --enable --yes-deps --force`, and verifies committed enablement and fresh-process provider discovery. Here `--force` confirms the official scanner's `CAUTION` verdict for trusted local code; it does not override SDK requirements or dependency admission, and scanning remains on. No provider wheel is preinstalled. Hermes 0.21.4 lacks this PM transaction surface and retains its wheel/runtime coverage. The PM lane needs network access for official pinned tools and locked Python packages, but no model or credentials. See [PM-managed Git installation](docs/verification.md#pm-managed-git-installation) for the local command, isolation contract, and limits.
 
 ## Build the distribution
 
@@ -89,13 +99,13 @@ Validate the package from TestPyPI in a disposable Hermes environment/profile. S
 ```sh
 HERMES_PYTHON=/absolute/path/to/hermes/python
 VERSION=0.2.0
-"$HERMES_PYTHON" -m pip install 'agent-client-protocol>=0.10.1,<0.11'
+"$HERMES_PYTHON" -m pip install 'agent-client-protocol==0.9.0'
 "$HERMES_PYTHON" -m pip install --no-deps \
   --index-url https://test.pypi.org/simple \
   "hermes-omp-acp==$VERSION"
 ```
 
-Install the SDK from the normal package index first. The provider installation uses `--no-deps` so TestPyPI is used only for the provider release under validation.
+Install Hermes's pinned SDK from the normal package index first. For the published TestPyPI wheel check, `--no-deps` ensures TestPyPI is used only for the provider artifact; CI separately verifies dependency resolution from the Hermes source project and provider wheel together. If Hermes's runtime SDK is not 0.9.0, resolve the conflict rather than forcing a different version.
 
 Run Hermes from that same environment, enable the `omp-acp-provider` plugin, and exercise the quick start in [the root README](README.md#quick-start). Check that Hermes discovers the installed entry point and that its documented behavior works; `pip install` alone is not validation.
 

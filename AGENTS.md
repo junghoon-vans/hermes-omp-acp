@@ -40,9 +40,24 @@ do not duplicate those documents here.
   buffered streaming behavior.
 - Each completion starts a new ACP session. Do not imply retained sessions or
   worktree management without implementing and verifying that behavior.
-- The distribution declares no runtime dependencies; Hermes and OMP are installed
-  separately. Check the documented compatibility boundaries when changing use of
-  Hermes APIs, especially private ACP helpers.
+- The distribution declares `agent-client-protocol>=0.9.0,<0.10.0`; Hermes and OMP
+  are installed separately. Preserve the official Hermes SDK pin when resolving
+  plugin dependencies, and use the SDK's public transport/connection APIs.
+- Treat the supported official Hermes release's unmodified dependencies as the
+  compatibility baseline. Install the plugin into that same environment and
+  verify the installed SDK satisfies both Hermes's original `acp` requirement
+  and the plugin requirement.
+- Never fix compatibility by independently bumping the SDK, patching an upstream
+  pin, or forcing installation with overrides, `--no-deps`, or resolver bypasses.
+  Changing the baseline requires explicit user approval and an updated support
+  matrix covering Hermes, Python, OMP, extras, and SDK constraints.
+- CI must retain joint wheel resolution and exercise installed entry-point
+  discovery, imports, and local runtime without a model call. Separately run
+  `.github/scripts/smoke_pm_install.py` for official PM-managed Git-plugin
+  admission on the pinned supported PM baseline. Use a clean bootstrap Python,
+  never the wheel-test environment: a preinstalled provider masks admission.
+  Verify committed enablement and fresh-process provider discovery, not only
+  the manager command's exit status. See the exact matrix in `docs/verification.md`.
 
 ## Verification
 

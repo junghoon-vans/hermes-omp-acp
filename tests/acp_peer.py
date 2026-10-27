@@ -52,14 +52,16 @@ class Peer(Agent):
         if self.mode == "budget":
             self.cwd = Path.cwd()
             self._mark("budget_initialize")
-            await asyncio.sleep(1.2)
+            # Keep the 3.6-second aggregate delay, but leave startup slack
+            # before selection. Every phase still fits a reset 3.2s deadline.
+            await asyncio.sleep(0.4)
         return InitializeResponse(protocol_version=PROTOCOL_VERSION, agent_capabilities={})
 
     async def new_session(self, cwd, mcp_servers, **kwargs):
         self.cwd = Path(cwd)
         if self.mode == "budget":
             self._mark("budget_new_session")
-            await asyncio.sleep(1.2)
+            await asyncio.sleep(0.4)
         self.model = "fixture/default" if self.mode.startswith("legacy") else "fixture/model"
         if self.mode.startswith("legacy"):
             return NewSessionResponse.model_validate({
@@ -76,7 +78,7 @@ class Peer(Agent):
             raise ValueError("The requested model is unavailable")
         if self.mode == "budget":
             self._mark("budget_selection")
-            await asyncio.sleep(1.2)
+            await asyncio.sleep(2.8)
         if self.mode == "reject":
             raise ValueError("Model selection rejected")
         if self.mode == "timeout":

@@ -8,7 +8,21 @@ Check `command -v omp` in the environment that launches Hermes. For a gateway se
 
 Confirm the plugin is installed under the active profile's `HERMES_HOME`. For a Python package installation, confirm it is installed in Hermes's Python environment and enabled in `plugins.enabled`.
 
-If loading the plugin reports a missing or incompatible `acp` module, install the provider with dependencies in that same Python environment: `python -m pip install --upgrade hermes-omp-acp`. The standalone transport requires `agent-client-protocol>=0.10.1,<0.11`; Hermes's locked `acp` extra alone may install an older SDK. Installing with `--no-deps` requires installing the supported SDK separately first.
+For a user-managed Python environment only, install the provider with dependencies in the same environment that runs Hermes: `python -m pip install --upgrade hermes-omp-acp`. The provider requires `agent-client-protocol>=0.9.0,<0.10.0`; official Hermes source pins exactly `0.9.0` in its `acp` extra. Do not use pip to modify a PM-managed or Nix-managed environment: use the Hermes plugin installer/PM dependency transaction, or Nix declarations and rebuild, respectively. Do not install a different SDK version to bypass a resolver conflict. If using `--no-deps` for a wheel artifact check, first confirm that the same environment already has an SDK version within the provider's declared range.
+
+If installation reports incompatible `agent-client-protocol` constraints, check the interpreter used by Hermes (`python -m pip show agent-client-protocol`) and its Hermes release's `acp` pin. For disposable source development only, create an isolated environment and jointly resolve dependencies from the Hermes source project and provider source: from the repository root, set `HERMES_SOURCE` to a disposable checkout and `REPO_ROOT=$PWD`, then run:
+
+```sh
+HERMES_PYTHON_VERSION=3.14
+uv venv --python "$HERMES_PYTHON_VERSION" "$HERMES_SOURCE/.venv"
+(
+  cd "$HERMES_SOURCE"
+  uv pip install --python .venv/bin/python \
+    -r pyproject.toml --extra acp -e "$REPO_ROOT"
+)
+```
+
+Hermes source is imported from that checkout via `PYTHONPATH`; this development setup does not install or validate the full PM-managed source-plugin lifecycle. If a Hermes release requires an SDK outside `>=0.9.0,<0.10.0`, it is not compatible with this provider's declared range; do not bypass the conflict with `--no-deps` or an override.
 
 ## Model discovery or inference fails
 

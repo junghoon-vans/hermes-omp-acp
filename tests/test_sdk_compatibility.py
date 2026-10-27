@@ -1,3 +1,4 @@
+import asyncio
 import os
 import shlex
 import sys
@@ -10,6 +11,8 @@ from unittest.mock import patch
 
 from providers import get_provider_profile
 
+from hermes_omp_acp._session import ACPRuntime
+from hermes_omp_acp.errors import ACPError
 from hermes_omp_acp.provider import register
 
 
@@ -58,7 +61,7 @@ class SdkCompatibilityTests(unittest.TestCase):
         with patch.dict(os.environ, {"HERMES_OMP_ACP_ARGS": peer_args}):
             with closing(self.client()) as client:
                 started = time.monotonic()
-                with self.assertRaises(RuntimeError):
+                with self.assertRaises(ACPError) as raised:
                     client.chat.completions.create(
                         model="fixture/model",
                         messages=[{"role": "user", "content": "Do the task"}],
@@ -67,6 +70,27 @@ class SdkCompatibilityTests(unittest.TestCase):
                 elapsed = time.monotonic() - started
 
         self.assertLess(elapsed, 5, "The transport failure was replaced by the completion timeout")
+        self.assertEqual(raised.exception.phase, "prompt")
+        self.assertTrue(raised.exception.prompt_dispatched)
+        self.assertIsInstance(raised.exception.__cause__, ConnectionError)
+        pid = int((self.home / "sdk-compat-eof.ready").read_text(encoding="ascii"))
+        self.assert_process_reaped(pid)
+
+    def test_live_child_stdout_eof_during_initialize_fails_and_reaps_child(self):
+        with patch.dict(os.environ, {"HERMES_OMP_ACP_ARGS": self.peer_args("eof-initialize")}):
+            with closing(self.client()) as client:
+                started = time.monotonic()
+                with self.assertRaises(ACPError) as raised:
+                    client.chat.completions.create(
+                        model="fixture/model",
+                        messages=[{"role": "user", "content": "Do the task"}],
+                        timeout=5,
+                    )
+                elapsed = time.monotonic() - started
+
+        self.assertLess(elapsed, 5)
+        self.assertEqual(raised.exception.phase, "initialize")
+        self.assertFalse(raised.exception.prompt_dispatched)
         pid = int((self.home / "sdk-compat-eof.ready").read_text(encoding="ascii"))
         self.assert_process_reaped(pid)
 
@@ -84,3 +108,34 @@ class SdkCompatibilityTests(unittest.TestCase):
         self.assertEqual(response.choices[0].finish_reason, "stop")
         pid = int((self.home / "sdk-compat-exit.ready").read_text(encoding="ascii"))
         self.assert_process_reaped(pid)
+
+    def test_request_after_observed_eof_is_not_dispatched(self):
+        async def scenario():
+            runtime = ACPRuntime(
+                acp_command=sys.executable,
+                acp_args=[str(Path(__file__).with_name("sdk_compat_peer.py")), "eof-after-session"],
+                acp_cwd=str(self.home),
+                mcp_enabled=False,
+            )
+            # Wait at the real session boundary so EOF is known before the next
+            # request, rather than relying on subprocess scheduling.
+            async with runtime._session() as state:
+                async with asyncio.timeout(2):
+                    while state.stdout.failure is None:
+                        await asyncio.sleep(0.01)
+                self.assertIsNone(state.process.returncode)
+                with self.assertRaises(RuntimeError) as raised:
+                    await asyncio.wait_for(runtime._request(
+                        state,
+                        "session/set_model",
+                        state.connection.set_session_model(
+                            model_id="fixture/model", session_id="fixture",
+                        ),
+                    ), timeout=1)
+                self.assertEqual(raised.exception.method, "session/set_model")
+                self.assertFalse(raised.exception.prompt_dispatched)
+                process = state.process
+            self.assertIsNotNone(process.returncode)
+
+        asyncio.run(scenario())
+        self.assertFalse((self.home / "sdk-compat-post-eof.request").exists())
