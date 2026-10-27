@@ -16,6 +16,29 @@ permissions:
   contents: read
 
 jobs:
+  pm-git-install:
+    name: Hermes 0.22.5 PM Git install / Python 3.14
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: astral-sh/setup-uv@v10.3.0
+        with:
+          python-version: "3.14"
+      - uses: actions/checkout@v7.0.1
+        with:
+          repository: NousResearch/hermes-agent
+          ref: bf0203a794a07aac3ff764972ab9087baa4e4f4e
+          path: .hermes-upstream
+      - name: Admit and enable the exact Git revision through official PM
+        env:
+          TMPDIR: ${{ runner.temp }}
+        run: |
+          uv run --no-project --python 3.14 python \
+            .github/scripts/smoke_pm_install.py --hermes-source .hermes-upstream
+
   compatibility:
     name: ${{ matrix.name }}
     runs-on: ubuntu-latest

@@ -51,10 +51,13 @@ do not duplicate those documents here.
   pin, or forcing installation with overrides, `--no-deps`, or resolver bypasses.
   Changing the baseline requires explicit user approval and an updated support
   matrix covering Hermes, Python, OMP, extras, and SDK constraints.
-- CI must jointly resolve official Hermes dependencies and the plugin, then
-  exercise installed entry-point discovery, imports, and local runtime without
-  a model call. Report full PM-managed Git-plugin admission separately; a wheel
-  smoke is not proof of that lifecycle.
+- CI must retain joint wheel resolution and exercise installed entry-point
+  discovery, imports, and local runtime without a model call. Separately run
+  `.github/scripts/smoke_pm_install.py` for official PM-managed Git-plugin
+  admission on the pinned supported PM baseline. Use a clean bootstrap Python,
+  never the wheel-test environment: a preinstalled provider masks admission.
+  Verify committed enablement and fresh-process provider discovery, not only
+  the manager command's exit status. See the exact matrix in `docs/verification.md`.
 
 ## Verification
 
