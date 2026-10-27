@@ -82,6 +82,7 @@ jobs:
               --extra "${{ matrix.hermes_extra }}" \
               "$GITHUB_WORKSPACE"/dist/*.whl
           )
+          git -C .hermes-upstream diff --exit-code HEAD -- pyproject.toml uv.lock
       - name: Check installed package and dependency compatibility
         run: |
           .hermes-upstream/.venv/bin/python - <<'PY'
@@ -90,6 +91,7 @@ jobs:
           import subprocess
           import sys
 
+          import tomllib
           from packaging.requirements import Requirement
           from packaging.version import Version
 
@@ -137,10 +139,24 @@ jobs:
           assert sdk_version in sdk_requirement.specifier, (
               f"{sdk_version} does not satisfy {sdk_requirement}"
           )
-          assert sdk_version == Version("0.9.0"), (
-              f"official Hermes source pin changed: expected 0.9.0, got {sdk_version}"
+          upstream = tomllib.loads((source / "pyproject.toml").read_text())
+          hermes_sdk_requirements = [
+              Requirement(item)
+              for item in upstream["project"]["optional-dependencies"]["acp"]
+              if Requirement(item).name == "agent-client-protocol"
+          ]
+          assert hermes_sdk_requirements, "Official Hermes acp extra has no SDK requirement"
+          for requirement in hermes_sdk_requirements:
+              assert requirement.marker is None or requirement.marker.evaluate(), (
+                  f"Official Hermes SDK requirement is inactive: {requirement}"
+              )
+              assert sdk_version in requirement.specifier, (
+                  f"{sdk_version} does not satisfy original Hermes {requirement}"
+              )
+          print(
+              f"Original Hermes: {hermes_sdk_requirements}; "
+              f"provider: {sdk_requirement}; installed SDK: {sdk_version}"
           )
-          print(f"Provider requires {sdk_requirement}; installed Hermes SDK: {sdk_version}")
           PY
       - uses: oven-sh/setup-bun@v2.2.0
         with:
@@ -154,6 +170,10 @@ jobs:
           bun add --cwd "$RUNNER_TEMP/omp" "@oh-my-pi/pi-coding-agent@$OMP_VERSION"
           "$RUNNER_TEMP/omp/node_modules/.bin/omp" --version
           echo "OMP_INTEGRATION_COMMAND=$RUNNER_TEMP/omp/node_modules/.bin/omp" >> "$GITHUB_ENV"
+      - name: Smoke installed discovery and native ACP without a model call
+        env:
+          PYTHONPATH: ${{ github.workspace }}/.hermes-upstream
+        run: .hermes-upstream/.venv/bin/python -P .github/scripts/smoke_discovery.py
       - name: Exercise the installed provider through Hermes
         run: |
           export PYTHONPATH="$GITHUB_WORKSPACE/.hermes-upstream"

@@ -43,6 +43,18 @@ do not duplicate those documents here.
 - The distribution declares `agent-client-protocol>=0.9.0,<0.10.0`; Hermes and OMP
   are installed separately. Preserve the official Hermes SDK pin when resolving
   plugin dependencies, and use the SDK's public transport/connection APIs.
+- Treat the supported official Hermes release's unmodified dependencies as the
+  compatibility baseline. Install the plugin into that same environment and
+  verify the installed SDK satisfies both Hermes's original `acp` requirement
+  and the plugin requirement.
+- Never fix compatibility by independently bumping the SDK, patching an upstream
+  pin, or forcing installation with overrides, `--no-deps`, or resolver bypasses.
+  Changing the baseline requires explicit user approval and an updated support
+  matrix covering Hermes, Python, OMP, extras, and SDK constraints.
+- CI must jointly resolve official Hermes dependencies and the plugin, then
+  exercise installed entry-point discovery, imports, and local runtime without
+  a model call. Report full PM-managed Git-plugin admission separately; a wheel
+  smoke is not proof of that lifecycle.
 
 ## Verification
 
