@@ -15,6 +15,7 @@ Hermes sends requests to `omp acp`; OMP handles model inference. Select an OMP `
 ## Requirements
 
 - **Hermes Agent 0.21.4 or later** ([release `v2026.9.21`](https://github.com/NousResearch/hermes-agent/releases/tag/v2026.9.21)).
+- **ACP SDK:** The provider requires `agent-client-protocol>=0.9.0,<0.10.0`; the official Hermes source `acp` extra pins `agent-client-protocol==0.9.0`.
 - **OMP 15.7.6 or later**, with `omp` on the Hermes process's `PATH` and a configured model. This version fixes activation of client-provided MCP tools in ACP sessions.
 - **Python matching Hermes:** 3.11–3.13 for Hermes 0.21.4; 3.14 for Hermes 0.22.x.
 
@@ -22,16 +23,16 @@ Hermes sends requests to `omp acp`; OMP handles model inference. Select an OMP `
 
 ### 1. Install and enable the plugin
 
-Install from [PyPI](https://pypi.org/project/hermes-omp-acp/) into the **same Python environment that runs Hermes**, then enable the plugin:
+For a **user-managed Python environment only**, install from [PyPI](https://pypi.org/project/hermes-omp-acp/) into the same Python environment that runs Hermes, then enable the plugin:
 
 ```sh
 pip install hermes-omp-acp
 hermes plugins enable omp-acp-provider
 ```
 
-If `pip` points to another environment, use the Hermes environment's Python: `python -m pip install hermes-omp-acp`.
+If `pip` points to another user-managed environment, use Hermes's Python: `python -m pip install hermes-omp-acp`. This package does not install Hermes or OMP.
 
-For a named Hermes profile, enable it with `hermes -p <profile> plugins enable omp-acp-provider`. Install Hermes and OMP separately; this package does not install either.
+Do not use `pip` to modify a Hermes PM-managed or Nix-managed environment. For PM-managed installations, use Hermes's plugin installer and let PM perform the dependency transaction. For Nix-managed installations, declare the provider and SDK through Nix and rebuild the environment. Restart Hermes (or its gateway) after installing/enabling the plugin or changing dependencies.
 
 `omp-acp-provider` is the plugin ID used for installation and activation. `omp-acp` is the model provider ID used in model settings and `--provider`; do not replace it with the plugin ID.
 
@@ -58,11 +59,11 @@ hermes chat --provider omp-acp --model openai-codex/gpt-6.1-sol \
   --oneshot -q 'Reply with exactly OMP_OK. Do not use tools.'
 ```
 
-For a running Hermes gateway, restart it after updating the configuration.
+Restart Hermes or its gateway after updating configuration.
 
 ### Alternative: install directly with Hermes
 
-To install from GitHub instead of PyPI:
+The following uses Hermes's source-plugin install route rather than installing the provider wheel from PyPI:
 
 ```sh
 hermes plugins install junghoon-vans/hermes-omp-acp
@@ -70,6 +71,10 @@ hermes plugins enable omp-acp-provider
 ```
 
 For a named profile, prefix both commands with `hermes -p <profile>`. Choose either this route or the PyPI installation above; you do not need both.
+
+For PM-managed Hermes, use this plugin-installer route and let PM own dependency admission. CI tests the wheel with the provider already enabled in temporary configuration; it does not run `hermes plugins enable` or cover the full PM-managed source-Git installation and dependency transaction. See [verification](docs/verification.md#continuous-integration) for the tested admission limits.
+
+Nix-managed installations must keep dependency ownership declarative; do not run the pip commands above inside a Nix-managed environment.
 
 For local source installation and development, see [CONTRIBUTING.md](CONTRIBUTING.md).
 

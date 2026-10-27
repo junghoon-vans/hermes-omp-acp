@@ -24,26 +24,24 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: Latest Hermes / OMP, minimum SDK
-            python: "3.14"
-            hermes: latest
-            omp: latest
-            acp_sdk_constraint: "==0.10.1"
-          - name: Latest Hermes / OMP, latest SDK
-            python: "3.14"
-            hermes: latest
-            omp: latest
-            acp_sdk_constraint: ">=0.10.1,<0.11"
-          - name: Minimum Hermes / OMP, minimum SDK
+          - name: Minimum Hermes / OMP
             python: "3.11"
-            hermes: v2026.9.21
+            hermes_ref: v2026.9.21
+            hermes_extra: acp
             omp: "15.7.6"
-            acp_sdk_constraint: "==0.10.1"
-          - name: Minimum Hermes / OMP, latest SDK
-            python: "3.11"
-            hermes: v2026.9.21
-            omp: "15.7.6"
-            acp_sdk_constraint: ">=0.10.1,<0.11"
+            upload_artifact: false
+          - name: Latest Hermes / OMP
+            python: "3.14"
+            hermes_ref: latest
+            hermes_extra: acp
+            omp: latest
+            upload_artifact: false
+          - name: Hermes 0.22.5 / latest OMP (all extras)
+            python: "3.14"
+            hermes_ref: bf0203a794a07aac3ff764972ab9087baa4e4f4e
+            hermes_extra: all
+            omp: latest
+            upload_artifact: true
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -55,31 +53,95 @@ jobs:
         run: |
           uv build --out-dir dist
           uvx --from twine twine check --strict dist/*
-      - name: Resolve the Hermes release
+      - name: Resolve the official Hermes revision
         id: hermes
         env:
           GH_TOKEN: ${{ github.token }}
-          HERMES_RELEASE: ${{ matrix.hermes }}
+          HERMES_REF: ${{ matrix.hermes_ref }}
         run: |
-          if [ "$HERMES_RELEASE" = latest ]; then
-            tag=$(gh api repos/NousResearch/hermes-agent/releases/latest --jq '.tag_name')
+          if [ "$HERMES_REF" = latest ]; then
+            ref=$(gh api repos/NousResearch/hermes-agent/releases/latest --jq '.tag_name')
           else
-            tag="$HERMES_RELEASE"
+            ref="$HERMES_REF"
           fi
-          sha=$(gh api "repos/NousResearch/hermes-agent/commits/$tag" --jq '.sha')
+          sha=$(gh api "repos/NousResearch/hermes-agent/commits/$ref" --jq '.sha')
           echo "ref=$sha" >> "$GITHUB_OUTPUT"
-          echo "Hermes release: $tag ($sha)"
+          echo "Hermes ref: $ref ($sha)"
       - uses: actions/checkout@v7.0.1
         with:
           repository: NousResearch/hermes-agent
           ref: ${{ steps.hermes.outputs.ref }}
           path: .hermes-upstream
-      - name: Prepare the official Hermes runtime
-        run: uv sync --project .hermes-upstream --extra acp --locked --no-install-project
-      - name: Install the provider wheel with the selected SDK
-        env:
-          ACP_SDK_CONSTRAINT: ${{ matrix.acp_sdk_constraint }}
-        run: uv pip install --python .hermes-upstream/.venv/bin/python dist/*.whl "agent-client-protocol$ACP_SDK_CONSTRAINT"
+      - name: Install official Hermes dependencies and provider wheel together
+        run: |
+          uv venv --python "${{ matrix.python }}" .hermes-upstream/.venv
+          (
+            cd .hermes-upstream
+            uv pip install --python .venv/bin/python \
+              -r pyproject.toml \
+              --extra "${{ matrix.hermes_extra }}" \
+              "$GITHUB_WORKSPACE"/dist/*.whl
+          )
+      - name: Check installed package and dependency compatibility
+        run: |
+          .hermes-upstream/.venv/bin/python - <<'PY'
+          from importlib.metadata import distribution, version
+          from pathlib import Path
+          import subprocess
+          import sys
+
+          from packaging.requirements import Requirement
+          from packaging.version import Version
+
+          source = Path(".hermes-upstream").resolve()
+          environment_python = source / ".venv" / "bin" / "python"
+          check = subprocess.run(
+              ["uv", "pip", "check", "--python", str(environment_python)],
+              capture_output=True,
+              check=False,
+              text=True,
+          )
+          report = check.stdout + check.stderr
+          if report:
+              print(report, end="" if report.endswith("\n") else "\n")
+          if check.returncode:
+              sys.path.insert(0, str(source))
+              try:
+                  from pm.pip_check import unexpected_incompatibilities
+              except ImportError as error:
+                  print(
+                      "Official Hermes lock checker unavailable; failing raw uv pip check.",
+                      file=sys.stderr,
+                  )
+                  raise SystemExit(check.returncode) from error
+              unexpected = unexpected_incompatibilities(report, source / "uv.lock")
+              if unexpected != []:
+                  if unexpected is None:
+                      print("Could not validate uv pip check output against the official lock.", file=sys.stderr)
+                  else:
+                      print("Unexpected dependency incompatibilities:", file=sys.stderr)
+                      print("\n".join(unexpected), file=sys.stderr)
+                  raise SystemExit(check.returncode or 1)
+              print(
+                  "Accepted only the dependency incompatibilities explicitly recorded "
+                  "as overrides in the official Hermes lock."
+              )
+
+          provider = distribution("hermes-omp-acp")
+          sdk_requirement = next(
+              Requirement(item)
+              for item in provider.requires or ()
+              if Requirement(item).name == "agent-client-protocol"
+          )
+          sdk_version = Version(version("agent-client-protocol"))
+          assert sdk_version in sdk_requirement.specifier, (
+              f"{sdk_version} does not satisfy {sdk_requirement}"
+          )
+          assert sdk_version == Version("0.9.0"), (
+              f"official Hermes source pin changed: expected 0.9.0, got {sdk_version}"
+          )
+          print(f"Provider requires {sdk_requirement}; installed Hermes SDK: {sdk_version}")
+          PY
       - uses: oven-sh/setup-bun@v2.2.0
         with:
           bun-version: latest
@@ -101,7 +163,7 @@ jobs:
           export PYTHONPATH="$GITHUB_WORKSPACE/.hermes-upstream"
           uv run --project .hermes-upstream --no-sync python -P -m unittest discover -s tests/integration -v
       - uses: actions/upload-artifact@v4
-        if: matrix.hermes == 'latest' && matrix.acp_sdk_constraint == '==0.10.1'
+        if: matrix.upload_artifact == true
         with:
           name: provider-distributions
           path: dist/*

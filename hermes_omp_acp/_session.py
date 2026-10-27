@@ -9,13 +9,13 @@ import shlex
 import tempfile
 import threading
 from collections import deque
-from collections.abc import AsyncGenerator, Mapping
+from collections.abc import AsyncGenerator, Coroutine, Mapping
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
-from acp import PROTOCOL_VERSION, spawn_agent_process
+from acp import PROTOCOL_VERSION, connect_to_agent
 from acp.connection import StreamDirection, StreamEvent
 from acp.exceptions import RequestError
 from acp.schema import (
@@ -27,6 +27,7 @@ from acp.schema import (
     RequestPermissionResponse,
     TextContentBlock,
 )
+from acp.transports import spawn_stdio_transport
 from agent.file_safety import (
     get_nt_namespace_error,
     get_read_block_error,
@@ -143,16 +144,60 @@ async def _await_agent_process_exit(
     return finish_task.result(), interrupted
 
 
+class _EOFReader(asyncio.StreamReader):
+    """Observe terminal stdout reads without a second consumer or SDK patches.
+
+    The SDK requires a StreamReader instance. Delegate only its readline API;
+    the SDK remains the sole stdout consumer and keeps its normal frame ordering.
+    """
+
+    def __init__(self, source: asyncio.StreamReader) -> None:
+        super().__init__()
+        self._source = source
+        self.failure: Exception | None = None
+        self.failure_ready = asyncio.Event()
+
+    async def readline(self) -> bytes:
+        try:
+            line = await self._source.readline()
+            if not line:
+                self.failure = ConnectionError("OMP ACP stdout closed.")
+                self.failure_ready.set()
+            return line
+        except Exception as exc:
+            self.failure = exc
+            self.failure_ready.set()
+            raise
+
+
+@asynccontextmanager
+async def _spawn_agent_connection(
+    callbacks: Any, command: str, *args: str,
+    transport_kwargs: Mapping[str, Any] | None = None, **kwargs: Any,
+) -> AsyncGenerator[Any, None]:
+    env = kwargs.pop("env", None)
+    cwd = kwargs.pop("cwd", None)
+    async with spawn_stdio_transport(
+        command, *args, env=env, cwd=cwd, **dict(transport_kwargs or {}),
+    ) as (reader, writer, process):
+        stdout = _EOFReader(reader)
+        connection = connect_to_agent(callbacks, writer, stdout, **kwargs)
+        try:
+            yield connection, process, stdout
+        finally:
+            await connection.close()
+
+
 @asynccontextmanager
 async def _bounded_spawn_agent_process(*args: Any, **kwargs: Any) -> AsyncGenerator[Any, None]:
-    """Keep the public SDK connection manager while bounding its subprocess teardown."""
+    """Keep public SDK transport cleanup while bounding the complete teardown."""
     transport_kwargs = dict(kwargs.get("transport_kwargs") or {})
     shutdown_timeout = float(transport_kwargs.get("shutdown_timeout", _SHUTDOWN_TIMEOUT))
-    manager = spawn_agent_process(*args, **kwargs)
-    connection, process = await manager.__aenter__()
+    manager = _spawn_agent_connection(*args, **kwargs)
+    connection, process, stdout = await manager.__aenter__()
     process = cast(asyncio.subprocess.Process, process)
     try:
-        yield connection, process
+        yield connection, process, stdout
     except BaseException as primary:
         cleanup_error, _ = await _await_agent_process_exit(
             manager, process, (type(primary), primary, primary.__traceback__), shutdown_timeout,
@@ -567,6 +612,7 @@ class _SessionState:
     stderr_task: asyncio.Task[None] | None
     stderr_tail: deque[str]
     request_context: _RequestContext
+    stdout: _EOFReader
 
 
 class ACPRuntime:
@@ -721,19 +767,37 @@ class ACPRuntime:
             requests = tuple((loop, request) for loop, _, request in self._active_tasks.values())
         self._schedule_cancellation(requests)
 
-    async def _request(self, state: _SessionState, method: str, awaitable: Any) -> Any:
+    async def _request(
+        self, state: _SessionState, method: str, awaitable: Coroutine[Any, Any, Any],
+    ) -> Any:
         context = state.request_context
         context.phase = _request_phase(method)
         context.method = method
         if method == "session/prompt":
             context.prompt_dispatched = None
-        response_task = asyncio.ensure_future(awaitable)
+
+        async def guarded_request() -> Any:
+            # Check inside the task, immediately before SDK registration: EOF
+            # can arrive after _request schedules it but before it starts.
+            if state.stdout.failure is not None:
+                if method == "session/prompt":
+                    context.prompt_dispatched = False
+                raise state.stdout.failure
+            return await awaitable
+
+        response_task = asyncio.create_task(guarded_request())
         if method == "session/prompt":
             context.prompt_task = response_task
         exit_task = asyncio.create_task(state.process.wait())
+        read_failure_task = asyncio.create_task(state.stdout.failure_ready.wait())
         try:
-            done, _ = await asyncio.wait((response_task, exit_task), return_when=asyncio.FIRST_COMPLETED)
-            if response_task in done:
+            await asyncio.wait(
+                (response_task, exit_task, read_failure_task),
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            # The SDK resolves a preceding wire response before it reads EOF.
+            # Prefer that result even when the EOF/exit waiter settles together.
+            if response_task.done():
                 result = response_task.result()
                 if context.cancel_requested and method == "session/prompt":
                     raise ACPCancelledError(
@@ -743,6 +807,8 @@ class ACPRuntime:
                         prompt_dispatched=context.prompt_dispatched,
                     )
                 return result
+            if state.stdout.failure is not None:
+                raise state.stdout.failure
             await _wait_for_stderr(state.stderr_task)
             raise _process_exit_error(state.process, state.stderr_tail)
         except asyncio.CancelledError as exc:
@@ -792,10 +858,12 @@ class ACPRuntime:
         finally:
             if context.prompt_task is response_task:
                 context.prompt_task = None
-            for pending in (response_task, exit_task):
+            for pending in (response_task, exit_task, read_failure_task):
                 if not pending.done():
                     pending.cancel()
-            await asyncio.gather(response_task, exit_task, return_exceptions=True)
+            await asyncio.gather(response_task, exit_task, read_failure_task, return_exceptions=True)
+            # Also close an SDK coroutine whose guarded task never started.
+            awaitable.close()
 
     @asynccontextmanager
     async def _session(
@@ -840,7 +908,7 @@ class ACPRuntime:
                     },
                     use_unstable_protocol=True,
                     observers=[callbacks.observe],
-                ) as (connection, spawned_process):
+                ) as (connection, spawned_process, stdout):
                     process = cast(asyncio.subprocess.Process, spawned_process)
                     request_context.connection = connection
                     self._register_process(process, generation, request_context)
@@ -854,6 +922,7 @@ class ACPRuntime:
                         stderr_task=stderr_task,
                         stderr_tail=stderr_tail,
                         request_context=request_context,
+                        stdout=stdout,
                     )
                     initialize_result = await self._request(
                         state,

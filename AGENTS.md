@@ -40,9 +40,9 @@ do not duplicate those documents here.
   buffered streaming behavior.
 - Each completion starts a new ACP session. Do not imply retained sessions or
   worktree management without implementing and verifying that behavior.
-- The distribution declares no runtime dependencies; Hermes and OMP are installed
-  separately. Check the documented compatibility boundaries when changing use of
-  Hermes APIs, especially private ACP helpers.
+- The distribution declares `agent-client-protocol>=0.9.0,<0.10.0`; Hermes and OMP
+  are installed separately. Preserve the official Hermes SDK pin when resolving
+  plugin dependencies, and use the SDK's public transport/connection APIs.
 
 ## Verification
 
