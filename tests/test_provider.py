@@ -16,7 +16,7 @@ from agent.auxiliary_client import _to_async_client
 from providers import get_provider_profile
 
 from hermes_omp_acp.provider import register
-from hermes_omp_acp.errors import ACPCancelledError
+from hermes_omp_acp.errors import ACPError, ACPCancelledError
 
 
 class ProviderTests(unittest.TestCase):
@@ -164,11 +164,15 @@ class ProviderTests(unittest.TestCase):
     def test_peer_exit_reports_its_failure_instead_of_waiting_for_a_timeout(self):
         args = shlex.join([str(Path(__file__).with_name("acp_peer.py")), "exit"])
         with patch.dict(os.environ, {"HERMES_OMP_ACP_ARGS": args}), closing(self.client()) as client:
-            with self.assertRaises(RuntimeError) as error:
+            with self.assertRaises(ACPError) as error:
                 client.chat.completions.create(
                     model="fixture/model", messages=[{"role": "user", "content": "Do the task"}], timeout=2,
                 )
-        self.assertIn("fixture peer failed during initialization", str(error.exception))
+        self.assertEqual(error.exception.phase, "initialize")
+        self.assertEqual(error.exception.method, "initialize")
+        self.assertIs(error.exception.prompt_dispatched, False)
+        self.assertFalse((self.home / "prompt-executed").exists())
+        self._assert_process_reaped(int((self.home / "exit_initialize.ready").read_text(encoding="ascii")))
 
     def test_model_discovery_remains_available_inside_an_async_caller(self):
         async def exercise():

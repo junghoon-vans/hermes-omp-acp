@@ -45,6 +45,8 @@ class Peer(Agent):
 
     async def initialize(self, protocol_version, **kwargs):
         if self.mode == "exit":
+            self.cwd = Path.cwd()
+            self._mark("exit_initialize")
             print("fixture peer failed during initialization", file=sys.stderr, flush=True)
             os._exit(17)
         if self.mode == "budget":
