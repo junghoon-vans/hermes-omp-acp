@@ -82,6 +82,19 @@ For local source installation and development, see [CONTRIBUTING.md](CONTRIBUTIN
 
 See [Configuration](docs/configuration.md) for per-profile plugin settings, environment overrides, MCP forwarding, and delegation model routes. Launch options default to `omp acp`; MCP forwarding is enabled by default.
 
+## Security and external-process disclosure
+
+**Catalog status: draft, not admitted.** File-sourced MCP secrets do not use Hermes's required secret routes (rule 11). External OMP authentication and undocumented Hermes imports also need an approved public integration path. Passing validators does not make this architecture eligible for the official catalog. See [catalog preparation](docs/catalog-submission.md).
+
+- Each completion launches the separately installed `omp acp` executable in the session working directory and sends it the conversation. Model discovery also starts OMP. OMP, not this plugin, owns model-provider authentication and network requests; OMP uses its own configured account and credential storage.
+- The child receives Hermes's subprocess environment with credential inheritance enabled. A Hermes profile is not an OMP profile. Review the child environment, executable, arguments, and OMP configuration before using this backend in a shared gateway or unattended job.
+- OMP may execute its own shell, file, web, and MCP tools under its configured policy. Native ACP permission requests are cancelled, not auto-approved or displayed as Hermes approval prompts. Operations that do not request permission may still execute. ACP filesystem callbacks enforce the session directory, Hermes file-safety checks, read redaction, and rejection of approval-required writes; these checks do not sandbox every OMP tool.
+- MCP forwarding is enabled by default. The plugin reads `$PI_CODING_AGENT_DIR/mcp.json`, or `~/.omp/agent/mcp.json` when unset, outside its own data directory. It forwards enabled server commands, arguments, environment values, URLs, and headers to OMP; these can contain secrets. OMP may start configured MCP processes or contact remote servers. Values including `!command` expressions are passed through for OMP to interpret. Disable forwarding with `mcp_enabled: false` in plugin settings or `HERMES_OMP_ACP_MCP_ENABLED=false`.
+- The plugin does not directly read OMP's login store or refresh or persist OAuth tokens. OMP may use its own stored credentials, including supported MCP OAuth credentials. This external authentication path and file-sourced MCP environment/header forwarding require catalog rule 11 review; a disclosure alone does not establish admission eligibility.
+- Completion children are closed and reaped on completion, cancellation, or timeout. This is not a background daemon. The plugin adds no telemetry or self-updater; external OMP and MCP services retain their own policies.
+
+See [Known limitations](docs/limitations.md) for the permission boundary and exact MCP transport behavior.
+
 ## Documentation
 
 - [How it works](docs/implementation.md)
