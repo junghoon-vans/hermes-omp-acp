@@ -25,6 +25,13 @@ The plugin's ACP filesystem callbacks also enforce these checks:
 - File paths must be absolute and resolve within the session's working directory.
 - Reads and writes are subject to Hermes's file safety checks.
 - File content returned by reads is passed through Hermes's secret redaction.
+- A positive `fs/read_text_file` `limit` applies even when `line` is omitted or
+  `1`. Ranged reads scan to the requested start and stop at the requested end
+  (subject to text buffering and the size of an individual physical line),
+  rather than decoding the entire file. Missing/nonpositive limits remain
+  unbounded. The selected text is joined before forced redaction so multiline
+  matches within that range retain their context; text outside the selected
+  range is not available to the redactor.
 - A `fs/write_text_file` request that requires interactive write approval is rejected by the bridge.
 
 These checks describe the ACP filesystem callbacks, not every possible OMP tool execution path. The [session implementation](../hermes_omp_acp/_session.py) applies Hermes's shared safety and redaction helpers.
