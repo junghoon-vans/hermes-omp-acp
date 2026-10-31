@@ -71,15 +71,16 @@ class OmpACPClient:
         try:
             asyncio.get_running_loop()
         except RuntimeError:
-            return asyncio.run(self._runtime.list_models(timeout_seconds))
-        # Model discovery is a synchronous Hermes interface, including when its
-        # caller already has an event loop. Run the SDK on a separate loop.
-        with ThreadPoolExecutor(max_workers=1) as executor:
-            return executor.submit(
-                copy_context().run,
-                asyncio.run,
-                self._runtime.list_models(timeout_seconds),
-            ).result()
+            pass
+        else:
+            # Model discovery stays synchronous even for an async caller.
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                return executor.submit(
+                    copy_context().run,
+                    asyncio.run,
+                    self._runtime.list_models(timeout_seconds),
+                ).result()
+        return asyncio.run(self._runtime.list_models(timeout_seconds))
 
     def cancel(self) -> None:
         self._runtime.cancel()
@@ -103,9 +104,11 @@ class OmpACPClient:
         try:
             asyncio.get_running_loop()
         except RuntimeError:
-            completion = self._completion(**kwargs)
-            return completion_to_stream_chunks(completion) if kwargs.get("stream") else completion
-        return self._acreate_chat_completion(**kwargs)
+            pass
+        else:
+            return self._acreate_chat_completion(**kwargs)
+        completion = self._completion(**kwargs)
+        return completion_to_stream_chunks(completion) if kwargs.get("stream") else completion
 
     async def _acreate_chat_completion(self, **kwargs: Any) -> Any:
         model = kwargs.get("model")

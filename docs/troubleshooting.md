@@ -30,13 +30,17 @@ Confirm OMP authentication works and the selected model is available to that acc
 
 ## Failed or timed-out completion
 
-The provider reports structured failure context, including the request phase, RPC method/code when available, process exit code, original cause, and whether prompt dispatch is known. Invalid configuration, unsupported protocol/capabilities, unavailable models, and RPC rejections are terminal rather than invitations to retry or switch providers.
+The provider reports structured failure context, including the request phase, RPC method/code when available, process exit code, a sanitized cause snapshot, and whether prompt dispatch is known. Cause snapshots omit original tracebacks, chained exceptions, filenames, and RPC data; recognized transport categories and RPC codes remain available. Invalid configuration, unsupported protocol/capabilities, unavailable models, and RPC rejections are terminal rather than invitations to retry or switch providers.
 
 Only a classified transient transport failure known to precede prompt dispatch is retryable. A timeout or lost connection after dispatch means the outcome is unknown: the provider cannot prove that OMP performed no work and does not authorize automatic replay or fallback. This policy also applies when Hermes's delegated watchdog wraps the provider error. Inspect the task's actual effects before manually resubmitting it; cancellation and process exit do not roll back completed tool actions.
 
 Timeouts use Hermes's `timeout` classification; a disconnected agent with an unknown outcome is not a malformed request. Only invalid ACP request/parameter errors use `format_error`. Terminal failures remain non-retryable with fallback disabled, independently of the displayed cause.
 
 The provider supplies actionable guidance through `error_context.display_message`. Showing it requires a Hermes build that honors this field for terminal provider errors. Stock Hermes 0.21.4 and 0.22.5 remain runtime-compatible but use their generic rejection copy until that renderer change is applied. Starting a new session or switching models does not establish that an earlier task performed no work.
+
+Stderr is continuously drained, but diagnostic capture has a fixed 8192-byte budget for the whole subprocess output, including incomplete lines. Only a complete block within that budget is surfaced, after forced Hermes secret redaction even when ordinary redaction is disabled. Oversized or incomplete blocks are omitted entirely, not suffix-trimmed: trimming could remove a credential's prefix or multiline context. Redaction failures also omit the block. This deliberately sacrifices verbose stderr rather than exposing fragments; arbitrary unrecognized secrets are not guaranteed to match Hermes's redaction patterns. Exit status remains in process-exit messages even when stderr is available.
+
+An incoming ACP frame-limit error names the failing phase and effective `stream_limit_bytes`. For a legitimate large message, increase `plugins.entries.omp-acp-provider.settings.stream_limit_bytes` or `HERMES_OMP_ACP_STREAM_LIMIT_BYTES` in the Hermes environment, then restart Hermes or its gateway. The environment override takes precedence. Larger limits permit more buffering; request timeouts are separate and increasing a timeout cannot fix an oversized frame. The diagnostic never includes the rejected frame.
 
 ## MCP tools missing
 

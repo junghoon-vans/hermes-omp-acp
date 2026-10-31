@@ -215,6 +215,23 @@ class NativeOmpTests(unittest.TestCase):
         self.assertEqual(self.endpoint.requests, [],
                          "An unknown model must not run inference on OMP's default model")
 
+    def test_frame_limit_reports_effective_setting_without_running_inference(self):
+        from hermes_omp_acp.errors import ACPError
+
+        self.configure(stream_limit_bytes=256)
+        with closing(self.profile.create_client(acp_cwd=str(self.root))) as client:
+            with self.assertRaises(ACPError) as raised:
+                client.chat.completions.create(
+                    model="fixture/model-b", timeout=20,
+                    messages=[{"role": "user", "content": "This must not reach inference."}],
+                )
+        error = raised.exception
+        self.assertIn(error.phase, {"initialize", "session"})
+        self.assertIs(error.prompt_dispatched, False)
+        self.assertIn("stream_limit_bytes=256", str(error))
+        self.assertIn("HERMES_OMP_ACP_STREAM_LIMIT_BYTES", str(error))
+        self.assertEqual(self.endpoint.requests, [])
+
     def _stop_gateway(self):
         script = """
 from gateway.status import get_running_pid
