@@ -121,6 +121,9 @@ class SkillResourceTests(unittest.TestCase):
         self.assertNotEqual(resolved_dir, self.search_dir.resolve())
 
     def test_profile_local_search_takes_precedence_over_shared_resource(self):
+        from agent import skill_utils
+        if not hasattr(skill_utils, "TIER_EXTERNAL"):
+            self.skipTest("Legacy Hermes refuses cross-root name collisions; tested separately")
         local_content = (
             "---\n"
             "name: search\n"
@@ -140,3 +143,16 @@ class SkillResourceTests(unittest.TestCase):
         self.assertTrue(view.get("success"), view)
         self.assertEqual(Path(view["skill_dir"]).resolve(), (home / "skills" / "search").resolve())
         self.assertEqual(view["content"], local_content)
+
+    def test_legacy_hermes_refuses_local_external_name_collision(self):
+        # Hermes before tiered precedence refuses cross-root collisions.
+        from agent import skill_utils
+        if hasattr(skill_utils, "TIER_EXTERNAL"):
+            self.skipTest("Current Hermes uses tiered local/external precedence")
+        local_content = "---\nname: search\ndescription: Local search.\n---\nLocal search.\n"
+        home = self._configure_home(
+            "legacy-local-collision", external_dirs=[self.skill_root], local_search=local_content,
+        )
+        result = self._inspect_home(home)
+        self.assertFalse(result["view"].get("success"), result["view"])
+        self.assertIn("Ambiguous skill name", result["view"]["error"])

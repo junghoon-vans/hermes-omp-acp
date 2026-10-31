@@ -48,6 +48,13 @@ printf '%s/skills\n' "$(pwd -P)"
 Keep the checkout available while using the skill. The returned path from the
 installed command is preferred when using the wheel.
 
+Hermes also excludes any `.venv` or `venv` ancestor, even for an explicit
+external root. Use an environment named differently (for example `runtime-env`)
+or the source checkout/Nix-store skill root outside those directories. The helper
+does not copy resources out of excluded environments. On older Hermes releases,
+a local skill with the same name produces an ambiguity error instead of taking
+precedence; remove the collision or upgrade to tiered-precedence Hermes.
+
 ## Why provider activation does not discover skills
 
 Hermes 0.22.5's provider entry point in installed `providers/__init__.py` invokes

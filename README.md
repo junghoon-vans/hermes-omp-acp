@@ -89,6 +89,8 @@ See [Configuration](docs/configuration.md) for per-profile plugin settings, envi
 The repository includes a bounded public-web research skill at
 [`skills/search/SKILL.md`](skills/search/SKILL.md). The `hermes-omp-acp` wheel
 ships the shared skill resource under the Python environment's `share/hermes-omp-acp/skills/search`.
+Hermes excludes `.venv` and `venv` ancestors; use a differently named environment
+or an external source/Nix-store skill root. See the [skill guide](docs/skills/search.md).
 After installing the wheel into the same Python environment as Hermes, run:
 
 ```sh
