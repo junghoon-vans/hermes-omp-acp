@@ -15,10 +15,16 @@ dependencies = ["agent-client-protocol>=0.9.0,<0.10.0"]
 [project.urls]
 Repository = "https://github.com/junghoon-vans/hermes-omp-acp"
 
+[project.scripts]
+hermes-omp-acp-skills = "hermes_omp_acp.skill_resources:main"
+
 [project.entry-points."hermes_agent.plugins"]
 omp-acp-provider = "hermes_omp_acp.provider:register"
 
 [tool.hatch.build.targets.wheel]
 packages = ["hermes_omp_acp"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"skills" = "hermes_omp_acp/bundled_skills"
 
 [tool.hatch.metadata.hooks.custom]

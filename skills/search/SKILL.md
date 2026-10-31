@@ -1,5 +1,5 @@
 ---
-name: omp-web-research
+name: search
 description: Bounded, source-linked web research delegated to OMP.
 metadata:
   hermes:
@@ -7,7 +7,7 @@ metadata:
     category: research
 ---
 
-# OMP Web Research
+# Search
 
 ## When to Use
 
@@ -43,11 +43,13 @@ bound those internal network requests or their cost.
 ### 2. Delegate through the existing OMP route
 
 Use Hermes `delegate_task` with an already configured route whose provider is
-`omp-acp`. For Advanced Delegation model routes, select its exposed `option`
-(e.g. `omp-deep`); never invent a route name or pass raw credentials/model settings
-as tool parameters. If no OMP route is available or its provider cannot be
-verified, report the missing setup. Do not silently research with Hermes's own
-search tools, install a search server, or change provider/approval defaults.
+`omp-acp`. For Advanced Delegation model routes, select an existing exposed
+`option` from that Hermes configuration; do not invent a route name or pass raw
+credentials/model settings as tool parameters. See
+`docs/configuration.md#official-delegation-model-routes` for route setup. If no
+OMP route is available or its provider cannot be verified, report the missing
+setup. Do not silently research with Hermes's own search tools, install a search
+server, or change provider/approval defaults.
 
 Put the sanitized question, allowed hostnames, all limits above, the research
 instructions below, and the required report format into the task itself. The
@@ -104,17 +106,18 @@ backend selection requires actual OMP configuration outside this skill.
 
 ## Pitfalls
 
-Installing the model-provider plugin does not register this skill. Install it in
-the selected Hermes profile or configure `skills.external_dirs` separately.
-The workflow has no intended repository mutations, but its prose is not an
-access-control boundary: OMP may still have shell, local-file, MCP, and other
-capabilities. Existing approval and provider policies remain in effect.
+The model-provider plugin does not register this skill. Expose its shared
+directory to each intended Hermes profile through `skills.external_dirs`; see
+`docs/skills/search.md` for wheel and source-checkout instructions. The workflow
+has no intended repository mutations, but its prose is not an access-control
+boundary: OMP may still have shell, local-file, MCP, and other capabilities.
+Existing approval and provider policies remain in effect.
 
 ## Verification
 
-In a fresh Hermes session, load `omp-web-research` explicitly and request a small
-public fact check with allowed hosts. Confirm the delegated OMP task actually
-searched, read a primary URL, and returned source-linked findings with retrieval
-time, usage, and uncertainty. A plausible answer alone is not proof of tool use.
-See `docs/skills/omp-web-research.md` in the source repository for installation
-and smoke-test steps.
+In a fresh Hermes session, load `search` explicitly and request a small public
+fact check with allowed hosts. Confirm the delegated OMP task actually searched,
+read a primary URL, and returned source-linked findings with retrieval time,
+usage, and uncertainty. A plausible answer alone is not proof of tool use. See
+`docs/skills/search.md` in the source repository for distribution and setup
+instructions.
