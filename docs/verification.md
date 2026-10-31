@@ -2,7 +2,43 @@
 
 ## Continuous integration
 
-[CI](https://github.com/junghoon-vans/hermes-omp-acp/actions) checks both the latest stable Hermes release with OMP's npm `latest` version on Python 3.14, and the minimum supported Hermes 0.21.4 (`v2026.9.21`) with OMP 15.7.6 on Python 3.11. Both jobs use the latest Bun runtime. CI resolves each Hermes release to a commit SHA and records the source revision and executable versions in the logs.
+[CI](https://github.com/junghoon-vans/hermes-omp-acp/actions) checks three installation configurations: minimum Hermes 0.21.4 (`v2026.9.21`) with OMP 15.7.6 on Python 3.11; dynamically resolved latest Hermes with OMP's npm `latest` on Python 3.14 using source extra `acp`; and Hermes 0.22.5 at pinned official commit [`bf0203a`](https://github.com/NousResearch/hermes-agent/commit/bf0203a794a07aac3ff764972ab9087baa4e4f4e) with OMP `latest` on Python 3.14 using source extra `all` (which includes `acp`). Latest currently resolves to 0.22.5, but those rows exercise different extras. CI resolves and installs the provider wheel together with Hermes dependencies read from the official source `pyproject.toml`. Hermes source itself is checked out and imported through `PYTHONPATH`, not installed as a Hermes wheel: its regular installer metadata does not declare the full source dependency set.
+
+CI rejects modifications to the upstream `pyproject.toml` and `uv.lock`, and checks the installed SDK against the original Hermes `acp` declaration as well as the installed provider's metadata. Before inference scenarios, `.github/scripts/smoke_discovery.py` verifies the installed wheel import, enabled entry-point discovery, and native OMP ACP model catalog in temporary homes without a completion/model call. This smoke uses a local fixture model with no credentials and no inference endpoint.
+
+The provider wheel's native integration suite starts with `omp-acp-provider` already enabled in a temporary Hermes configuration. A separate PM Git-install job exercises the official installation lifecycle rather than treating that wheel setup as admission proof.
+
+### PM-managed Git installation
+
+The dedicated job targets unmodified Hermes 0.22.5 at `bf0203a794a07aac3ff764972ab9087baa4e4f4e`, bootstrapped with Python 3.14 and the `acp` extra. Hermes 0.21.4 has no `pm` package or transactional plugin-admission module; its existing wheel/runtime lane is retained, not silently skipped by the PM job. The dynamic latest and pinned `all` wheel lanes remain independent compatibility checks; PM admission is claimed only for the pinned `acp` baseline.
+
+The command shape follows the [official plugin installation guide](https://hermes-agent.nousresearch.com/docs/user-guide/features/plugins); supported flags and admission behavior are checked against the [pinned install implementation](https://github.com/NousResearch/hermes-agent/blob/bf0203a794a07aac3ff764972ab9087baa4e4f4e/hermes_cli/plugins_cmd_install.py) and [PM CLI](https://github.com/NousResearch/hermes-agent/blob/bf0203a794a07aac3ff764972ab9087baa4e4f4e/pm/cli.py), not assumed from mutable current documentation.
+
+`.github/scripts/smoke_pm_install.py` clones the official baseline and creates a bare Git remote containing the current checked-out PR/reusable-workflow revision. In fresh `HOME`, `HERMES_HOME`, and XDG directories, it runs:
+
+```sh
+python hermes pm install --tools-only --without agent-browser --without cua-driver
+python hermes pm install --extra acp
+python hermes plugins install file:///scratch/hermes-omp-acp.git \
+  --ref <full-current-commit> --enable --yes-deps --force
+python hermes plugins enable omp-acp-provider
+python hermes plugins list
+```
+
+The first command provisions PM's required pinned tool closure; `--extra acp` alone assumes those tools are already available. Only the optional browser/computer-use payloads are declined through official CLI flags, not dependency checks.
+
+The official security scanner labels this custom source `CAUTION` (including subprocess calls in tests/CI and explanatory documentation). `--force` is its explicit non-interactive confirmation for this trusted local revision, not an SDK/resolver override. Scanning remains enabled, and Hermes still refuses `DANGEROUS` verdicts. Without that confirmation, the official installer rejects the source before dependency admission. CI does not claim unattended installation with the default scan-consent policy.
+
+The script first verifies that neither the provider distribution nor provider registration exists. After installation it checks the manager's immutable pin and actual Git HEAD, committed enablement, installed SDK satisfaction of both original declarations, and provider discovery in a fresh process using PM's selected dependency environment. It rejects changes to upstream `pyproject.toml` and `uv.lock`. A zero CLI exit alone is not success: Hermes can leave a refused plugin installed but disabled.
+
+The local `file://` remote is a supported custom Git source (Hermes warns that this scheme is unsuitable for production); it exercises real clone, exact-ref checkout, scanning, publication, and dependency admission without requiring GitHub credentials or fetching the old plugin from `main`. It does not cover GitHub transport/authentication, catalog admission, a running gateway's hot reload, or a live service restart. Fresh-process discovery is the restart boundary tested here. No model, paid API, or OMP installation is needed in this job; native OMP behavior remains covered by the wheel lanes.
+
+This is profile-isolated, not network-offline: official PM acquires its pinned manager/tool/interpreter artifacts and locked Python dependencies from upstream download hosts/package indexes. Its lock validation, dependency policy, and any network failures remain hard failures; the script does not force an SDK, preinstall the provider, patch upstream, or bypass dependency resolution. Run locally from the repository root with a clean bootstrap interpreter:
+
+```sh
+uv run --no-project --python 3.14 python .github/scripts/smoke_pm_install.py \
+  --hermes-source /path/to/unmodified/hermes-0.22.5
+```
 
 CI builds and installs the wheel, then runs the ACP regression suite and native OMP integration suite. The native tests use a local OpenAI-compatible model endpoint to exercise provider discovery, model-picker availability, model selection, async responses, native file reading, MCP tool execution, and Hermes CLI output without external credentials.
 
@@ -23,7 +59,7 @@ The automated native MCP tool-call scenarios use stdio. They do not establish li
 
 The standalone client's ACP peer regressions also exercise permission cancellation, safe reads/writes with read-back, secret redaction, rejected out-of-workspace and symlink access, protected writes, reasoning/tool-call conversion, model discovery from an async caller, and peer-exit diagnostics. These use actual subprocess connections through the SDK rather than mocked transport.
 
-Lifecycle regressions use peer readiness gates to establish overlapping sessions before releasing or cancelling them. They verify that timeout or caller cancellation reaps only the affected child while a sibling still completes, and that `close()` stops and reaps all active children. Additional cases cover one timeout budget across initialization/session creation/model selection, and ordered text/reasoning bursts followed immediately by the prompt response. The tests use the public provider/client interface, not private module names or transport mocks.
+Lifecycle regressions use peer readiness gates to establish overlapping sessions before releasing or cancelling them. They verify that timeout or caller cancellation reaps only the affected child while a sibling still completes, and that `close()` stops and reaps all active children. Additional cases cover one timeout budget across initialization/session creation/model selection, and ordered text/reasoning bursts followed immediately by the prompt response. A focused post-EOF guard case uses the internal `ACPRuntime._session`/`_request` boundary to wait until the real stdout reader observes EOF, then verifies that a subsequent RPC sends no bytes. The remaining lifecycle tests use the public provider/client interface; these checks use real SDK subprocess connections rather than mocked transport.
 
 ## Package metadata and release checks
 

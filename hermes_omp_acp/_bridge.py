@@ -7,10 +7,12 @@ from types import SimpleNamespace
 from typing import Any
 
 from agent.acp_openai_bridge import (
-    completion_to_stream_chunks,
+    completion_to_stream_chunks as _hermes_completion_to_stream_chunks,
     extract_tool_calls_from_text,
     render_tool_bridge_sections,
 )
+
+from .errors import ACPCancelledError, ACPError
 
 _ROLE_LABELS = {
     "system": "System",
@@ -72,17 +74,46 @@ def _render_message_content(content: Any) -> str:
     return str(content).strip()
 
 
-def build_completion(response_text: str, reasoning: str, model: str | None) -> Any:
-    tool_calls, cleaned_text = extract_tool_calls_from_text(response_text)
+def build_completion(
+    response_text: str, reasoning: str, model: str | None, *, stop_reason: str
+) -> Any:
+    if stop_reason == "cancelled":
+        raise ACPCancelledError("OMP ACP prompt cancelled.")
+    if stop_reason == "max_turn_requests":
+        # Hermes automatically continues a `length` response in a new completion.
+        # Exhausting the ACP turn budget must not restart already-executed work.
+        raise ACPError(
+            "OMP ACP stopped because max_turn_requests was reached.",
+            phase="prompt",
+            method="session/prompt",
+            prompt_dispatched=True,
+        )
+    if stop_reason not in {"end_turn", "max_tokens", "refusal"}:
+        raise ACPError(
+            f"Unsupported OMP ACP stop reason: {stop_reason!r}.",
+            phase="prompt",
+            method="session/prompt",
+            prompt_dispatched=True,
+        )
+    if stop_reason == "end_turn":
+        tool_calls, cleaned_text = extract_tool_calls_from_text(response_text)
+    else:
+        tool_calls, cleaned_text = [], response_text
+    refusal = None
+    if stop_reason == "refusal":
+        refusal = cleaned_text or "The ACP agent refused to continue."
+        cleaned_text = refusal
     message = SimpleNamespace(
         content=cleaned_text,
         tool_calls=tool_calls,
         reasoning=reasoning or None,
         reasoning_content=reasoning or None,
         reasoning_details=None,
+        refusal=refusal,
     )
+    finish_reason = "length" if stop_reason == "max_tokens" else "tool_calls" if tool_calls else "stop"
     return SimpleNamespace(
-        choices=[SimpleNamespace(message=message, finish_reason="tool_calls" if tool_calls else "stop")],
+        choices=[SimpleNamespace(message=message, finish_reason=finish_reason)],
         usage=SimpleNamespace(
             prompt_tokens=0,
             completion_tokens=0,
@@ -90,4 +121,14 @@ def build_completion(response_text: str, reasoning: str, model: str | None) -> A
             prompt_tokens_details=SimpleNamespace(cached_tokens=0),
         ),
         model=model or "omp-acp",
+        acp_stop_reason=stop_reason,
     )
+
+
+def completion_to_stream_chunks(completion: Any) -> Any:
+    chunks = _hermes_completion_to_stream_chunks(completion)
+    for chunk in chunks:
+        for choice in chunk.choices:
+            choice.delta.refusal = completion.choices[0].message.refusal
+            choice.delta.acp_stop_reason = completion.acp_stop_reason
+    return chunks

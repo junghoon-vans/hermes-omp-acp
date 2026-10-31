@@ -11,9 +11,10 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from providers import get_provider_profile
+from providers import get_provider_profile, register_provider
 
 from model_endpoint import ModelEndpoint
+from hermes_omp_acp.provider import register
 
 
 class NativeOmpTests(unittest.TestCase):
@@ -65,16 +66,19 @@ class NativeOmpTests(unittest.TestCase):
         environment.update({
             "HOME": str(self.root), "HERMES_HOME": str(hermes_home),
             "PI_CODING_AGENT_DIR": str(agent_dir), "PYTHONDONTWRITEBYTECODE": "1",
+            "OMP_INTEGRATION_COMMAND": str(Path(command).resolve()),
         })
         isolation = patch.dict(os.environ, environment, clear=True)
         isolation.start()
         self.addCleanup(isolation.stop)
         self.profile = get_provider_profile("omp-acp")
         self.assertIsNotNone(self.profile, "Hermes did not discover the installed provider")
+        # Discovery is process-wide; refresh settings for this isolated home.
+        self.addCleanup(register_provider, self.profile)
+        register()
+        self.profile = get_provider_profile("omp-acp")
 
     def configure(self, **settings):
-        from hermes_omp_acp.provider import register
-
         config_path = Path(os.environ["HERMES_HOME"]) / "config.yaml"
         config = json.loads(config_path.read_text())
         config["plugins"]["entries"]["omp-acp-provider"]["settings"].update(settings)
@@ -180,6 +184,27 @@ class NativeOmpTests(unittest.TestCase):
         self.assertFalse(marker.exists(), "Disabling forwarding must prevent MCP server startup")
         self.assert_native_read_and_model_selection()
 
+    def test_disabled_mcp_registration_is_isolated_between_test_cases(self):
+        self.configure(mcp_enabled=False)
+        disabled_profile = self.profile
+        command = os.environ["OMP_INTEGRATION_COMMAND"]
+        bin_dir = self.root / "bin"
+        bin_dir.mkdir()
+        (bin_dir / "omp").symlink_to(command)
+        for discovery in ("command-variable", "PATH"):
+            with self.subTest(discovery=discovery), patch.dict(os.environ):
+                if discovery == "PATH":
+                    os.environ.pop("OMP_INTEGRATION_COMMAND")
+                    os.environ["PATH"] = str(bin_dir) + os.pathsep + os.environ.get("PATH", "")
+                case = NativeOmpTests("test_default_omp_config_respects_disabled_server_precedence")
+                result = unittest.TestResult()
+                case.run(result)
+                self.assertEqual(result.testsRun, 1)
+                self.assertEqual(result.errors, [])
+                self.assertEqual(result.failures, [])
+                self.assertIs(get_provider_profile("omp-acp"), disabled_profile,
+                              "The nested case must restore the preceding provider registration")
+
     def test_unknown_model_does_not_run_native_omp_inference(self):
         with closing(self.profile.create_client(acp_cwd=str(self.root))) as client:
             with self.assertRaisesRegex(RuntimeError, "not offered"):
@@ -189,6 +214,23 @@ class NativeOmpTests(unittest.TestCase):
                 )
         self.assertEqual(self.endpoint.requests, [],
                          "An unknown model must not run inference on OMP's default model")
+
+    def test_frame_limit_reports_effective_setting_without_running_inference(self):
+        from hermes_omp_acp.errors import ACPError
+
+        self.configure(stream_limit_bytes=256)
+        with closing(self.profile.create_client(acp_cwd=str(self.root))) as client:
+            with self.assertRaises(ACPError) as raised:
+                client.chat.completions.create(
+                    model="fixture/model-b", timeout=20,
+                    messages=[{"role": "user", "content": "This must not reach inference."}],
+                )
+        error = raised.exception
+        self.assertIn(error.phase, {"initialize", "session"})
+        self.assertIs(error.prompt_dispatched, False)
+        self.assertIn("stream_limit_bytes=256", str(error))
+        self.assertIn("HERMES_OMP_ACP_STREAM_LIMIT_BYTES", str(error))
+        self.assertEqual(self.endpoint.requests, [])
 
     def _stop_gateway(self):
         script = """

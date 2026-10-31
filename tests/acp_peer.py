@@ -1,6 +1,7 @@
 """Deterministic ACP peer for testing the provider's client interface."""
 
 import asyncio
+import json
 import os
 import sys
 from pathlib import Path
@@ -45,19 +46,23 @@ class Peer(Agent):
 
     async def initialize(self, protocol_version, **kwargs):
         if self.mode == "exit":
+            self.cwd = Path.cwd()
+            self._mark("exit_initialize")
             print("fixture peer failed during initialization", file=sys.stderr, flush=True)
             os._exit(17)
         if self.mode == "budget":
             self.cwd = Path.cwd()
             self._mark("budget_initialize")
-            await asyncio.sleep(1.2)
+            # Keep the 3.6-second aggregate delay, but leave startup slack
+            # before selection. Every phase still fits a reset 3.2s deadline.
+            await asyncio.sleep(0.4)
         return InitializeResponse(protocol_version=PROTOCOL_VERSION, agent_capabilities={})
 
     async def new_session(self, cwd, mcp_servers, **kwargs):
         self.cwd = Path(cwd)
         if self.mode == "budget":
             self._mark("budget_new_session")
-            await asyncio.sleep(1.2)
+            await asyncio.sleep(0.4)
         self.model = "fixture/default" if self.mode.startswith("legacy") else "fixture/model"
         if self.mode.startswith("legacy"):
             return NewSessionResponse.model_validate({
@@ -74,7 +79,7 @@ class Peer(Agent):
             raise ValueError("The requested model is unavailable")
         if self.mode == "budget":
             self._mark("budget_selection")
-            await asyncio.sleep(1.2)
+            await asyncio.sleep(2.8)
         if self.mode == "reject":
             raise ValueError("Model selection rejected")
         if self.mode == "timeout":
@@ -114,6 +119,15 @@ class Peer(Agent):
                 tool_call=ToolCallUpdate(tool_call_id="fixture-operation", title="Run a protected operation"),
             )
             text = f"permission outcome: {decision.outcome.outcome}"
+        elif self.mode == "filesystem-ranges":
+            results = []
+            for bounds in ({}, {"line": 1}, {"line": 2}, {"line": 6}):
+                result = await self.client.read_text_file(
+                    path=str(self.cwd / "range.txt"), session_id=session_id,
+                    limit=2, **bounds,
+                )
+                results.append(result.content)
+            text = json.dumps(results)
         elif self.mode == "filesystem":
             allowed = await self.client.read_text_file(path=str(self.cwd / "allowed.txt"), session_id=session_id)
 

@@ -24,7 +24,7 @@ omp-acp-provider = "hermes_omp_acp.provider:register"
 [tool.hatch.build.targets.wheel]
 packages = ["hermes_omp_acp"]
 
-[tool.hatch.build.targets.wheel.force-include]
-"skills" = "hermes_omp_acp/bundled_skills"
+[tool.hatch.build.targets.wheel.shared-data]
+"skills" = "share/hermes-omp-acp/skills"
 
 [tool.hatch.metadata.hooks.custom]

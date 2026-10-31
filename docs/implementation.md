@@ -12,11 +12,13 @@
 - [`_session.py`](../hermes_omp_acp/_session.py) owns ACP negotiation, callbacks and filesystem policy, subprocesses, stderr, deadlines, and cancellation.
 - [`mcp.py`](../hermes_omp_acp/mcp.py) translates the global OMP MCP configuration into ACP server definitions; `_session.py` sends them when creating a completion session.
 
-The client calls the runtime's `list_models`, `run`, and `close` interfaces. SDK connections, child processes, callback buffers, and stderr tasks stay inside the runtime rather than crossing the interface as a tuple. A single runtime owns the active-session tracking for each client.
+The client calls the runtime's `list_models`, `run`, `cancel`, and `close` interfaces. SDK connections, child processes, callback buffers, and stderr tasks stay inside the runtime rather than crossing the interface as a tuple. A single runtime owns the active-session tracking for each client.
 
 ## Runtime behavior
 
 Each completion opens a new OMP process and ACP session, sending the conversation history with the request. Responses are buffered before being returned as completion objects or stream chunks.
+
+Initialization must return the protocol version supported by the installed SDK. An unsupported or invalid version is a terminal negotiation failure before session creation or prompting; model discovery returns unavailable rather than an apparently usable model list. Unknown optional capability fields remain compatible.
 
 When a model is explicitly requested, the client selects it in that same session before sending the prompt, using `session/set_config_option` or the legacy `session/set_model` method. Unavailable models, selection errors, and returned model mismatches abort the completion instead of falling back to OMP's default. When no current model is returned, the successful selection RPC is the acknowledgement. Omitting the model allows the session default.
 
@@ -24,7 +26,25 @@ Synchronous completions run the SDK on a local event loop; asynchronous completi
 
 Incoming message and reasoning chunks are collected in wire order before the prompt response is returned, independently of the SDK's background callback scheduling. Streaming remains buffered rather than live.
 
+Terminal prompt outcomes are preserved rather than treating every partial answer as successful completion:
+
+| ACP stop reason | Hermes-compatible result |
+| --- | --- |
+| `end_turn` | Ordinary `stop`, or `tool_calls` for complete extracted calls. |
+| `max_tokens` | `length`, preserving partial text but exposing no executable tool calls. Hermes's normal length-continuation behavior remains applicable. |
+| `max_turn_requests` | A terminal, non-retryable error identifying the original request-limit reason. Mapping it to `length` would incorrectly start another ACP completion. |
+| `cancelled` | `InterruptedError`, not successful partial output, retry, or fallback. |
+| `refusal` | Original refusal text and standard refusal metadata, not an invented transport or content-filter error. |
+
+Returned completions retain `acp_stop_reason`; buffered stream deltas also retain the stop reason and refusal metadata. Only `end_turn` can produce executable extracted tool calls, so cancelled or limited partial tool-call text cannot run as a Hermes tool.
+
 One timeout budget covers initialization, session creation, model selection, and prompting. Requests also monitor child-process exit so a dead peer reports its failure instead of waiting for the response deadline. Child shutdown can take additional time. Each session tracks its own process and response buffers; `close()` stops active requests and their processes.
+
+The plugin composes the SDK's public `spawn_stdio_transport` and `connect_to_agent` APIs. A delegating `StreamReader` signals terminal stdout reads to the runtime, which fails a pending RPC with `ConnectionError` on clean EOF even when the child remains alive. The SDK is still the only stdout reader; complete responses take precedence over subsequent EOF. The runtime refuses new RPCs after an observed terminal read failure. No SDK internals are patched or second stdout consumer started, and clean EOF does not enter the SDK's receive-error callback.
+
+`cancel()` is synchronous and thread-safe, and cancels all requests active on that client when called. `close()` also stops active requests; neither prevents a later independent completion. During prompting, cancellation sends `session/cancel` and waits a bounded interval for the original prompt to settle before escalating to process teardown. Startup cancellation does not require a session ID. Native async task cancellation and request timeouts notify only their own prompt, preserving overlapping siblings and the caller's cancellation/timeout outcome. Sending a cancellation notification is not proof that earlier tool actions were rolled back.
+
+Cleanup retains the normal two-second graceful shutdown, but also bounds stdin close, termination, kill, and child reaping. Repeated cancellation cannot abandon that cleanup, and cleanup crossing the request deadline does not replace an already-raised request failure with a timeout. These bounds apply to the owned OMP child, not an arbitrary descendant process tree.
 
 The client uses an explicit session workspace when supplied, otherwise Hermes's logical working-directory resolver. Model discovery disables filesystem callbacks, skips MCP configuration loading, and sends an empty `mcpServers` list. Completion sessions forward the supported global OMP MCP definitions as described below.
 

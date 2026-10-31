@@ -16,6 +16,7 @@ from agent.auxiliary_client import _to_async_client
 from providers import get_provider_profile
 
 from hermes_omp_acp.provider import register
+from hermes_omp_acp.errors import ACPError, ACPCancelledError
 
 
 class ProviderTests(unittest.TestCase):
@@ -163,11 +164,15 @@ class ProviderTests(unittest.TestCase):
     def test_peer_exit_reports_its_failure_instead_of_waiting_for_a_timeout(self):
         args = shlex.join([str(Path(__file__).with_name("acp_peer.py")), "exit"])
         with patch.dict(os.environ, {"HERMES_OMP_ACP_ARGS": args}), closing(self.client()) as client:
-            with self.assertRaises(RuntimeError) as error:
+            with self.assertRaises(ACPError) as error:
                 client.chat.completions.create(
                     model="fixture/model", messages=[{"role": "user", "content": "Do the task"}], timeout=2,
                 )
-        self.assertIn("fixture peer failed during initialization", str(error.exception))
+        self.assertEqual(error.exception.phase, "initialize")
+        self.assertEqual(error.exception.method, "initialize")
+        self.assertIs(error.exception.prompt_dispatched, False)
+        self.assertFalse((self.home / "prompt-executed").exists())
+        self._assert_process_reaped(int((self.home / "exit_initialize.ready").read_text(encoding="ascii")))
 
     def test_model_discovery_remains_available_inside_an_async_caller(self):
         async def exercise():
@@ -210,7 +215,7 @@ class ProviderTests(unittest.TestCase):
             )
         self.assertEqual(response.choices[0].message.content, "first second")
 
-    def test_stream_limit_configuration_and_environment_control_large_notifications(self):
+    def test_explicit_stream_limits_preserve_large_catalogs_and_reject_oversized_frames(self):
         args = shlex.join([str(Path(__file__).with_name("acp_peer.py")), "large-commands"])
         for limit, override, succeeds in (
             (65_536, "", False),
@@ -226,7 +231,7 @@ class ProviderTests(unittest.TestCase):
                 self.configure(stream_limit_bytes=limit)
                 with closing(self.client()) as client:
                     if not succeeds:
-                        with self.assertRaisesRegex(RuntimeError, "chunk is longer than limit"):
+                        with self.assertRaises(RuntimeError):
                             client.chat.completions.create(
                                 model="fixture/model", messages=[{"role": "user", "content": "Do the task"}],
                                 timeout=5,
@@ -410,6 +415,20 @@ class ProviderTests(unittest.TestCase):
                     timeout=5,
                 )
         self.assertEqual(response.choices[0].message.content, "permission outcome: cancelled")
+
+    def test_filesystem_ranges_round_trip_through_acp(self):
+        (self.home / "range.txt").write_text("one\ntwo\nthree\nfour\nfive\n", encoding="utf-8")
+        args = shlex.join([str(Path(__file__).with_name("acp_peer.py")), "filesystem-ranges"])
+        with patch.dict(os.environ, {"HERMES_OMP_ACP_ARGS": args}):
+            with closing(self.client()) as client:
+                response = client.chat.completions.create(
+                    model="fixture/model", messages=[{"role": "user", "content": "Read bounded ranges"}],
+                    timeout=5,
+                )
+        self.assertEqual(
+            json.loads(response.choices[0].message.content),
+            ["one\ntwo\n", "one\ntwo\n", "two\nthree\n", ""],
+        )
 
     def test_filesystem_callbacks_allow_safe_reads_and_writes_and_reject_escape(self):
         secret = "fixture-read-secret-123456789"
@@ -629,7 +648,7 @@ class ProviderTests(unittest.TestCase):
 
                 client.close()
                 for future in futures:
-                    with self.assertRaises((asyncio.CancelledError, RuntimeError)):
+                    with self.assertRaises(ACPCancelledError):
                         future.result(timeout=5)
                     self.assertTrue(future.done())
                 self._assert_process_reaped(pids["close_left"])

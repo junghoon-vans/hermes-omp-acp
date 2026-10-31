@@ -1,18 +1,100 @@
 """Register OMP through Hermes's external-process provider interface."""
 
 from contextlib import closing
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any
 
 from providers import register_provider
 from providers.base import ProviderProfile
 
 from ._session import DEFAULT_STREAM_LIMIT_BYTES, validate_stream_limit_bytes
+from .errors import ACPError, ACPCancelledError, ACPTimeoutError
+
+
+def _classify_acp_error(
+    error: BaseException,
+    *,
+    status_code: int | None = None,
+    error_code: str | None = None,
+    message: str | None = None,
+    body: Any = None,
+    model: str | None = None,
+) -> dict[str, Any] | None:
+    # Hermes's delegated watchdog replaces the provider exception with a plain
+    # TimeoutError, retaining the original in Python's exception chain.
+    seen: set[int] = set()
+    timed_out = isinstance(error, TimeoutError)
+    while not isinstance(error, (ACPError, ACPTimeoutError, ACPCancelledError)):
+        if id(error) in seen:
+            return None
+        seen.add(id(error))
+        wrapped = error.__cause__ or error.__context__
+        if wrapped is None:
+            return None
+        error = wrapped
+        timed_out = timed_out or isinstance(error, TimeoutError)
+
+    context: dict[str, Any] = {
+        "phase": error.phase,
+        "failure_kind": error.failure_kind,
+    }
+    if error.method is not None:
+        context["method"] = error.method
+    if error.rpc_code is not None:
+        context["rpc_code"] = error.rpc_code
+    if error.exit_code is not None:
+        context["exit_code"] = error.exit_code
+    if error.prompt_dispatched is None:
+        context["prompt_dispatch_uncertain"] = True
+    else:
+        context["prompt_dispatched"] = error.prompt_dispatched
+
+    if error.failure_kind == "pre_dispatch_transport" and error.prompt_dispatched is False:
+        return {
+            "reason": "timeout",
+            "retryable": True,
+            "should_fallback": False,
+            "error_context": context,
+        }
+    reason = "unknown"
+    if timed_out:
+        reason = "timeout"
+        guidance = "OMP did not respond before the request deadline."
+    elif isinstance(error, ACPCancelledError):
+        guidance = "The OMP request was cancelled."
+    elif error.rpc_code in (-32600, -32602):
+        reason = "format_error"
+        guidance = "OMP rejected an invalid ACP request."
+    elif error.failure_kind == "outcome_unknown":
+        guidance = "The OMP connection ended before a result was received."
+    elif error.phase == "launch":
+        guidance = "Hermes could not start OMP."
+    elif error.phase == "model_selection":
+        guidance = "OMP could not select the requested model."
+    else:
+        guidance = "OMP reported an ACP request failure."
+
+    if error.prompt_dispatched is False:
+        guidance += " The task was not dispatched to OMP."
+    else:
+        guidance += " The task may have executed partially; inspect any changes before submitting it again."
+    context["display_message"] = guidance + " Hermes did not retry or switch models automatically."
+    return {
+        "reason": reason,
+        "retryable": False,
+        "should_fallback": False,
+        "error_context": context,
+    }
 
 
 @dataclass
 class OmpACPProfile(ProviderProfile):
     mcp_enabled: bool = True
     stream_limit_bytes: int = DEFAULT_STREAM_LIMIT_BYTES
+    classify_api_error: Any = field(init=False, repr=False)
+
+    def __post_init__(self):
+        self.classify_api_error = _classify_acp_error
 
     def create_client(self, **client_kwargs):
         from .client import OmpACPClient

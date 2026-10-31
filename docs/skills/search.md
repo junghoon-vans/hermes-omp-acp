@@ -2,7 +2,9 @@
 
 The source skill is [`skills/search/SKILL.md`](../../skills/search/SKILL.md). The
 `hermes-omp-acp` wheel includes the same shared resource under
-`hermes_omp_acp/bundled_skills/search`. It is not a standalone Hermes plugin.
+the Python environment's `share/hermes-omp-acp/skills/search`. Hermes excludes
+`site-packages` ancestors from discovery, so the wheel uses shared data outside
+the import package. It is not a standalone Hermes plugin.
 
 ## Install and expose the shared skill
 

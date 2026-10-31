@@ -8,11 +8,39 @@ Check `command -v omp` in the environment that launches Hermes. For a gateway se
 
 Confirm the plugin is installed under the active profile's `HERMES_HOME`. For a Python package installation, confirm it is installed in Hermes's Python environment and enabled in `plugins.enabled`.
 
-If loading the plugin reports a missing `acp` module, install the provider with dependencies in that same Python environment: `python -m pip install hermes-omp-acp`. The standalone transport requires `agent-client-protocol>=0.9.0,<0.10.0`; installing with `--no-deps` assumes that dependency is already present.
+For a user-managed Python environment only, install the provider with dependencies in the same environment that runs Hermes: `python -m pip install --upgrade hermes-omp-acp`. The provider requires `agent-client-protocol>=0.9.0,<0.10.0`; official Hermes source pins exactly `0.9.0` in its `acp` extra. Do not use pip to modify a PM-managed or Nix-managed environment: use the Hermes plugin installer/PM dependency transaction, or Nix declarations and rebuild, respectively. Do not install a different SDK version to bypass a resolver conflict. If using `--no-deps` for a wheel artifact check, first confirm that the same environment already has an SDK version within the provider's declared range.
+
+If installation reports incompatible `agent-client-protocol` constraints, check the interpreter used by Hermes (`python -m pip show agent-client-protocol`) and its Hermes release's `acp` pin. For disposable source development only, create an isolated environment and jointly resolve dependencies from the Hermes source project and provider source: from the repository root, set `HERMES_SOURCE` to a disposable checkout and `REPO_ROOT=$PWD`, then run:
+
+```sh
+HERMES_PYTHON_VERSION=3.14
+uv venv --python "$HERMES_PYTHON_VERSION" "$HERMES_SOURCE/.venv"
+(
+  cd "$HERMES_SOURCE"
+  uv pip install --python .venv/bin/python \
+    -r pyproject.toml --extra acp -e "$REPO_ROOT"
+)
+```
+
+Hermes source is imported from that checkout via `PYTHONPATH`; this development setup does not install or validate the full PM-managed source-plugin lifecycle. If a Hermes release requires an SDK outside `>=0.9.0,<0.10.0`, it is not compatible with this provider's declared range; do not bypass the conflict with `--no-deps` or an override.
 
 ## Model discovery or inference fails
 
 Confirm OMP authentication works and the selected model is available to that account.
+
+## Failed or timed-out completion
+
+The provider reports structured failure context, including the request phase, RPC method/code when available, process exit code, a sanitized cause snapshot, and whether prompt dispatch is known. Cause snapshots omit original tracebacks, chained exceptions, filenames, and RPC data; recognized transport categories and RPC codes remain available. Invalid configuration, unsupported protocol/capabilities, unavailable models, and RPC rejections are terminal rather than invitations to retry or switch providers.
+
+Only a classified transient transport failure known to precede prompt dispatch is retryable. A timeout or lost connection after dispatch means the outcome is unknown: the provider cannot prove that OMP performed no work and does not authorize automatic replay or fallback. This policy also applies when Hermes's delegated watchdog wraps the provider error. Inspect the task's actual effects before manually resubmitting it; cancellation and process exit do not roll back completed tool actions.
+
+Timeouts use Hermes's `timeout` classification; a disconnected agent with an unknown outcome is not a malformed request. Only invalid ACP request/parameter errors use `format_error`. Terminal failures remain non-retryable with fallback disabled, independently of the displayed cause.
+
+The provider supplies actionable guidance through `error_context.display_message`. Showing it requires a Hermes build that honors this field for terminal provider errors. Stock Hermes 0.21.4 and 0.22.5 remain runtime-compatible but use their generic rejection copy until that renderer change is applied. Starting a new session or switching models does not establish that an earlier task performed no work.
+
+Stderr is continuously drained, but diagnostic capture has a fixed 8192-byte budget for the whole subprocess output, including incomplete lines. Only a complete block within that budget is surfaced, after forced Hermes secret redaction even when ordinary redaction is disabled. Oversized or incomplete blocks are omitted entirely, not suffix-trimmed: trimming could remove a credential's prefix or multiline context. Redaction failures also omit the block. This deliberately sacrifices verbose stderr rather than exposing fragments; arbitrary unrecognized secrets are not guaranteed to match Hermes's redaction patterns. Exit status remains in process-exit messages even when stderr is available.
+
+An incoming ACP frame-limit error names the failing phase and effective `stream_limit_bytes`. For a legitimate large message, increase `plugins.entries.omp-acp-provider.settings.stream_limit_bytes` or `HERMES_OMP_ACP_STREAM_LIMIT_BYTES` in the Hermes environment, then restart Hermes or its gateway. The environment override takes precedence. Larger limits permit more buffering; request timeouts are separate and increasing a timeout cannot fix an oversized frame. The diagnostic never includes the rejected frame.
 
 ## MCP tools missing
 
