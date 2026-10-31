@@ -1,8 +1,8 @@
-# Search skill
+# OMP web search skill
 
-The source skill is [`skills/search/SKILL.md`](../../skills/search/SKILL.md). The
+The source skill is [`skills/omp-web-search/SKILL.md`](../../skills/omp-web-search/SKILL.md). The
 `hermes-omp-acp` wheel includes the same shared resource under
-the Python environment's `share/hermes-omp-acp/skills/search`. Hermes excludes
+the Python environment's `share/hermes-omp-acp/skills/omp-web-search`. Hermes excludes
 `site-packages` ancestors from discovery, so the wheel uses shared data outside
 the import package. It is not a standalone Hermes plugin.
 
@@ -17,7 +17,7 @@ hermes-omp-acp-skills
 ```
 
 `hermes-omp-acp-skills` prints one absolute directory containing
-`search/SKILL.md`. It does not inspect or modify Hermes profiles, install the
+`omp-web-search/SKILL.md`. It does not inspect or modify Hermes profiles, install the
 skill into a profile, or change configuration. Merge the printed directory into
 `skills.external_dirs` in the `config.yaml` of each intended Hermes home,
 preserving any existing entries:
@@ -34,7 +34,7 @@ the intended Hermes home explicitly as the caller before using Hermes commands:
 ```sh
 export HERMES_HOME=/absolute/path/to/intended/hermes-home
 hermes skills list
-hermes chat -s search
+hermes chat -s omp-web-search
 ```
 
 For a source checkout instead of the wheel, use the absolute path to that
@@ -54,6 +54,10 @@ or the source checkout/Nix-store skill root outside those directories. The helpe
 does not copy resources out of excluded environments. On older Hermes releases,
 a local skill with the same name produces an ambiguity error instead of taking
 precedence; remove the collision or upgrade to tiered-precedence Hermes.
+
+The canonical name is `omp-web-search`, formerly `search`. Update preload commands
+and explicit `skill_view` calls to the new name; no legacy alias is shipped.
+The configured parent `skills.external_dirs` path does not change.
 
 ## Why provider activation does not discover skills
 
@@ -84,7 +88,7 @@ or an upstream model-provider skill hook. Neither is added by this package.
   `read` tools. Search availability, backend, billing, and limits depend on the
   OMP setup.
 
-Before using the skill, confirm `search` appears in `hermes skills list` and
+Before using the skill, confirm `omp-web-search` appears in `hermes skills list` and
 verify that the intended delegation route is configured with provider
 `omp-acp`. The skill's workflow uses `delegate_task` and asks the delegated OMP
 worker to use native `web_search` and `read`; route configuration or preloading

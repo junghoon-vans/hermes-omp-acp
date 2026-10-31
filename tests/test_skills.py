@@ -18,7 +18,7 @@ from tools.skills_tool import skill_view, skills_list
 
 result = {
     "listing": json.loads(skills_list()),
-    "view": json.loads(skill_view("search", preprocess=False)),
+    "view": json.loads(skill_view("omp-web-search", preprocess=False)),
 }
 if "provider" in sys.argv[1:]:
     profile = get_provider_profile("omp-acp")
@@ -33,9 +33,9 @@ class SkillResourceTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.temp_root = Path(temporary.name)
         self.skill_root = skill_directory().resolve()
-        self.search_dir = self.skill_root / "search"
+        self.search_dir = self.skill_root / "omp-web-search"
         self.search_file = self.search_dir / "SKILL.md"
-        self.assertTrue(self.search_file.is_file(), f"Missing bundled search skill: {self.search_file}")
+        self.assertTrue(self.search_file.is_file(), f"Missing bundled omp-web-search skill: {self.search_file}")
         self.search_content = self.search_file.read_text(encoding="utf-8-sig", errors="replace")
 
     def _configure_home(self, name, *, external_dirs=None, local_search=None):
@@ -43,7 +43,7 @@ class SkillResourceTests(unittest.TestCase):
         home.mkdir(parents=True)
 
         if local_search is not None:
-            local_skill = home / "skills" / "search"
+            local_skill = home / "skills" / "omp-web-search"
             local_skill.mkdir(parents=True)
             (local_skill / "SKILL.md").write_text(local_search, encoding="utf-8")
 
@@ -92,12 +92,12 @@ class SkillResourceTests(unittest.TestCase):
     def _assert_shared_search_loaded(self, result):
         listing = result["listing"]
         self.assertTrue(listing.get("success"), listing)
-        self.assertIn("search", [skill.get("name") for skill in listing.get("skills", [])])
+        self.assertIn("omp-web-search", [skill.get("name") for skill in listing.get("skills", [])])
 
         view = result["view"]
         self.assertTrue(view.get("success"), view)
         self.assertEqual(Path(view["skill_dir"]).resolve(), self.search_dir.resolve())
-        self.assertEqual(view["path"], "search/SKILL.md")
+        self.assertEqual(view["path"], "omp-web-search/SKILL.md")
         self.assertEqual(view["content"], self.search_content)
         self.assertEqual(result.get("provider"), "omp-acp")
 
@@ -126,7 +126,7 @@ class SkillResourceTests(unittest.TestCase):
             self.skipTest("Legacy Hermes refuses cross-root name collisions; tested separately")
         local_content = (
             "---\n"
-            "name: search\n"
+            "name: omp-web-search\n"
             "description: Profile-local search fixture.\n"
             "---\n\n"
             "This content comes from the profile-local search skill.\n"
@@ -141,7 +141,7 @@ class SkillResourceTests(unittest.TestCase):
         self.assertEqual(result.get("provider"), "omp-acp")
         view = result["view"]
         self.assertTrue(view.get("success"), view)
-        self.assertEqual(Path(view["skill_dir"]).resolve(), (home / "skills" / "search").resolve())
+        self.assertEqual(Path(view["skill_dir"]).resolve(), (home / "skills" / "omp-web-search").resolve())
         self.assertEqual(view["content"], local_content)
 
     def test_legacy_hermes_refuses_local_external_name_collision(self):
@@ -149,7 +149,7 @@ class SkillResourceTests(unittest.TestCase):
         from agent import skill_utils
         if hasattr(skill_utils, "TIER_EXTERNAL"):
             self.skipTest("Current Hermes uses tiered local/external precedence")
-        local_content = "---\nname: search\ndescription: Local search.\n---\nLocal search.\n"
+        local_content = "---\nname: omp-web-search\ndescription: Local search.\n---\nLocal search.\n"
         home = self._configure_home(
             "legacy-local-collision", external_dirs=[self.skill_root], local_search=local_content,
         )

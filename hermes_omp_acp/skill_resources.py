@@ -9,13 +9,13 @@ def skill_directory() -> Path:
     package = Path(__file__).resolve().parent
     # Hermes excludes site-packages ancestors from skill discovery.
     bundled = Path(sys.prefix) / "share" / "hermes-omp-acp" / "skills"
-    if (bundled / "search" / "SKILL.md").is_file():
+    if (bundled / "omp-web-search" / "SKILL.md").is_file():
         return bundled
     # Source and editable installations retain the repository's skill tree.
     source = package.parent / "skills"
-    if (source / "search" / "SKILL.md").is_file():
+    if (source / "omp-web-search" / "SKILL.md").is_file():
         return source
-    raise FileNotFoundError("The hermes-omp-acp distribution is missing its search skill")
+    raise FileNotFoundError("The hermes-omp-acp distribution is missing its omp-web-search skill")
 
 
 def main() -> None:

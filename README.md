@@ -84,13 +84,13 @@ For local source installation and development, see [CONTRIBUTING.md](CONTRIBUTIN
 
 See [Configuration](docs/configuration.md) for per-profile plugin settings, environment overrides, MCP forwarding, and delegation model routes. Launch options default to `omp acp`; MCP forwarding is enabled by default.
 
-## Optional search skill
+## Optional omp-web-search skill
 
 The repository includes a bounded public-web research skill at
-[`skills/search/SKILL.md`](skills/search/SKILL.md). The `hermes-omp-acp` wheel
-ships the shared skill resource under the Python environment's `share/hermes-omp-acp/skills/search`.
+[`skills/omp-web-search/SKILL.md`](skills/omp-web-search/SKILL.md). The `hermes-omp-acp` wheel
+ships the shared skill resource under the Python environment's `share/hermes-omp-acp/skills/omp-web-search`.
 Hermes excludes `.venv` and `venv` ancestors; use a differently named environment
-or an external source/Nix-store skill root. See the [skill guide](docs/skills/search.md).
+or an external source/Nix-store skill root. See the [skill guide](docs/skills/omp-web-search.md).
 After installing the wheel into the same Python environment as Hermes, run:
 
 ```sh
@@ -98,7 +98,7 @@ hermes-omp-acp-skills
 ```
 
 The command prints the absolute shared skill directory containing
-`search/SKILL.md`; merge that directory into `skills.external_dirs` in the
+`omp-web-search/SKILL.md`; merge that directory into `skills.external_dirs` in the
 `config.yaml` of each intended Hermes home, preserving existing entries:
 
 ```yaml
@@ -114,7 +114,7 @@ instead. No copying is needed. Select the intended Hermes home with
 ```sh
 export HERMES_HOME=/absolute/path/to/intended/hermes-home
 hermes skills list
-hermes chat -s search
+hermes chat -s omp-web-search
 ```
 
 Installing or enabling `omp-acp-provider` alone does **not** register or
@@ -132,7 +132,7 @@ The skill requires an existing delegation model route using provider
 `omp-acp`, plus working OMP-native `web_search` and public URL `read` tools.
 See [delegation model routes](docs/configuration.md#official-delegation-model-routes)
 for the Advanced Delegation setup and the
-[search skill guide](docs/skills/search.md) for distribution, prerequisites,
+[omp-web-search skill guide](docs/skills/omp-web-search.md) for distribution, prerequisites,
 and limitations. This describes the research workflow; it does not claim that
 any particular delegated research task has succeeded.
 

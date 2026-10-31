@@ -1,5 +1,5 @@
 ---
-name: search
+name: omp-web-search
 description: Bounded, source-linked web research delegated to OMP.
 metadata:
   hermes:
@@ -7,7 +7,7 @@ metadata:
     category: research
 ---
 
-# Search
+# OMP web search
 
 ## When to Use
 
@@ -108,16 +108,16 @@ backend selection requires actual OMP configuration outside this skill.
 
 The model-provider plugin does not register this skill. Expose its shared
 directory to each intended Hermes profile through `skills.external_dirs`; see
-`docs/skills/search.md` for wheel and source-checkout instructions. The workflow
+`docs/skills/omp-web-search.md` for wheel and source-checkout instructions. The workflow
 has no intended repository mutations, but its prose is not an access-control
 boundary: OMP may still have shell, local-file, MCP, and other capabilities.
 Existing approval and provider policies remain in effect.
 
 ## Verification
 
-In a fresh Hermes session, load `search` explicitly and request a small public
+In a fresh Hermes session, load `omp-web-search` explicitly and request a small public
 fact check with allowed hosts. Confirm the delegated OMP task actually searched,
 read a primary URL, and returned source-linked findings with retrieval time,
 usage, and uncertainty. A plausible answer alone is not proof of tool use. See
-`docs/skills/search.md` in the source repository for distribution and setup
+`docs/skills/omp-web-search.md` in the source repository for distribution and setup
 instructions.
