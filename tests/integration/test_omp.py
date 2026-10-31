@@ -11,9 +11,10 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from providers import get_provider_profile
+from providers import get_provider_profile, register_provider
 
 from model_endpoint import ModelEndpoint
+from hermes_omp_acp.provider import register
 
 
 class NativeOmpTests(unittest.TestCase):
@@ -71,10 +72,12 @@ class NativeOmpTests(unittest.TestCase):
         self.addCleanup(isolation.stop)
         self.profile = get_provider_profile("omp-acp")
         self.assertIsNotNone(self.profile, "Hermes did not discover the installed provider")
+        # Discovery is process-wide; refresh settings for this isolated home.
+        self.addCleanup(register_provider, self.profile)
+        register()
+        self.profile = get_provider_profile("omp-acp")
 
     def configure(self, **settings):
-        from hermes_omp_acp.provider import register
-
         config_path = Path(os.environ["HERMES_HOME"]) / "config.yaml"
         config = json.loads(config_path.read_text())
         config["plugins"]["entries"]["omp-acp-provider"]["settings"].update(settings)
@@ -179,6 +182,17 @@ class NativeOmpTests(unittest.TestCase):
         self.assertEqual(response.choices[0].message.content, self.token)
         self.assertFalse(marker.exists(), "Disabling forwarding must prevent MCP server startup")
         self.assert_native_read_and_model_selection()
+
+    def test_disabled_mcp_registration_is_isolated_between_test_cases(self):
+        self.configure(mcp_enabled=False)
+        disabled_profile = self.profile
+        case = NativeOmpTests("test_default_omp_config_respects_disabled_server_precedence")
+        result = unittest.TestResult()
+        case.run(result)
+        self.assertEqual(result.errors, [])
+        self.assertEqual(result.failures, [])
+        self.assertIs(get_provider_profile("omp-acp"), disabled_profile,
+                      "The nested case must restore the preceding provider registration")
 
     def test_unknown_model_does_not_run_native_omp_inference(self):
         with closing(self.profile.create_client(acp_cwd=str(self.root))) as client:
