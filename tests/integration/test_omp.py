@@ -66,6 +66,7 @@ class NativeOmpTests(unittest.TestCase):
         environment.update({
             "HOME": str(self.root), "HERMES_HOME": str(hermes_home),
             "PI_CODING_AGENT_DIR": str(agent_dir), "PYTHONDONTWRITEBYTECODE": "1",
+            "OMP_INTEGRATION_COMMAND": str(Path(command).resolve()),
         })
         isolation = patch.dict(os.environ, environment, clear=True)
         isolation.start()
@@ -186,13 +187,23 @@ class NativeOmpTests(unittest.TestCase):
     def test_disabled_mcp_registration_is_isolated_between_test_cases(self):
         self.configure(mcp_enabled=False)
         disabled_profile = self.profile
-        case = NativeOmpTests("test_default_omp_config_respects_disabled_server_precedence")
-        result = unittest.TestResult()
-        case.run(result)
-        self.assertEqual(result.errors, [])
-        self.assertEqual(result.failures, [])
-        self.assertIs(get_provider_profile("omp-acp"), disabled_profile,
-                      "The nested case must restore the preceding provider registration")
+        command = os.environ["OMP_INTEGRATION_COMMAND"]
+        bin_dir = self.root / "bin"
+        bin_dir.mkdir()
+        (bin_dir / "omp").symlink_to(command)
+        for discovery in ("command-variable", "PATH"):
+            with self.subTest(discovery=discovery), patch.dict(os.environ):
+                if discovery == "PATH":
+                    os.environ.pop("OMP_INTEGRATION_COMMAND")
+                    os.environ["PATH"] = str(bin_dir) + os.pathsep + os.environ.get("PATH", "")
+                case = NativeOmpTests("test_default_omp_config_respects_disabled_server_precedence")
+                result = unittest.TestResult()
+                case.run(result)
+                self.assertEqual(result.testsRun, 1)
+                self.assertEqual(result.errors, [])
+                self.assertEqual(result.failures, [])
+                self.assertIs(get_provider_profile("omp-acp"), disabled_profile,
+                              "The nested case must restore the preceding provider registration")
 
     def test_unknown_model_does_not_run_native_omp_inference(self):
         with closing(self.profile.create_client(acp_cwd=str(self.root))) as client:
