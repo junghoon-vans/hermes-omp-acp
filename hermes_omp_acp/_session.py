@@ -394,14 +394,27 @@ def _fs_read_text_file(params: Mapping[str, Any], cwd: str) -> dict[str, str]:
     path = _ensure_path_within_cwd(str(params.get("path") or ""), cwd, verb="Read")
     if block_error := get_read_block_error(str(path)):
         raise PermissionError(block_error)
+    line, limit = params.get("line"), params.get("limit")
+    start = line - 1 if isinstance(line, int) and line > 1 else 0
+    count = limit if isinstance(limit, int) and limit > 0 else None
     try:
-        content = path.read_text(encoding="utf-8-sig")
+        if start or count is not None:
+            with path.open(encoding="utf-8-sig") as stream:
+                # Keep splitlines semantics (including Unicode separators) without
+                # reading the rest of the file for a bounded request.
+                lines = (part for physical in stream for part in physical.splitlines(keepends=True))
+                selected = []
+                for index, part in enumerate(lines):
+                    if index < start:
+                        continue
+                    selected.append(part)
+                    if count is not None and len(selected) >= count:
+                        break
+                content = "".join(selected)
+        else:
+            content = path.read_text(encoding="utf-8-sig")
     except FileNotFoundError:
         content = ""
-    line, limit = params.get("line"), params.get("limit")
-    if isinstance(line, int) and line > 1:
-        end = line - 1 + limit if isinstance(limit, int) and limit > 0 else None
-        content = "".join(content.splitlines(keepends=True)[line - 1 : end])
     if content:
         content = redact_sensitive_text(content, force=True)
     return {"content": content}

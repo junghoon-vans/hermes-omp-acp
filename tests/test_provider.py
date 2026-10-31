@@ -416,6 +416,20 @@ class ProviderTests(unittest.TestCase):
                 )
         self.assertEqual(response.choices[0].message.content, "permission outcome: cancelled")
 
+    def test_filesystem_ranges_round_trip_through_acp(self):
+        (self.home / "range.txt").write_text("one\ntwo\nthree\nfour\nfive\n", encoding="utf-8")
+        args = shlex.join([str(Path(__file__).with_name("acp_peer.py")), "filesystem-ranges"])
+        with patch.dict(os.environ, {"HERMES_OMP_ACP_ARGS": args}):
+            with closing(self.client()) as client:
+                response = client.chat.completions.create(
+                    model="fixture/model", messages=[{"role": "user", "content": "Read bounded ranges"}],
+                    timeout=5,
+                )
+        self.assertEqual(
+            json.loads(response.choices[0].message.content),
+            ["one\ntwo\n", "one\ntwo\n", "two\nthree\n", ""],
+        )
+
     def test_filesystem_callbacks_allow_safe_reads_and_writes_and_reject_escape(self):
         secret = "fixture-read-secret-123456789"
         (self.home / "allowed.txt").write_text(f"read-ok\nAPI_KEY={secret}\n", encoding="utf-8")

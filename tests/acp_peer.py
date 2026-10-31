@@ -1,6 +1,7 @@
 """Deterministic ACP peer for testing the provider's client interface."""
 
 import asyncio
+import json
 import os
 import sys
 from pathlib import Path
@@ -118,6 +119,15 @@ class Peer(Agent):
                 tool_call=ToolCallUpdate(tool_call_id="fixture-operation", title="Run a protected operation"),
             )
             text = f"permission outcome: {decision.outcome.outcome}"
+        elif self.mode == "filesystem-ranges":
+            results = []
+            for bounds in ({}, {"line": 1}, {"line": 2}, {"line": 6}):
+                result = await self.client.read_text_file(
+                    path=str(self.cwd / "range.txt"), session_id=session_id,
+                    limit=2, **bounds,
+                )
+                results.append(result.content)
+            text = json.dumps(results)
         elif self.mode == "filesystem":
             allowed = await self.client.read_text_file(path=str(self.cwd / "allowed.txt"), session_id=session_id)
 
