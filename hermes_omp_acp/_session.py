@@ -8,7 +8,6 @@ import os
 import shlex
 import tempfile
 import threading
-from collections import deque
 from collections.abc import AsyncGenerator, Coroutine, Mapping
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
@@ -37,12 +36,13 @@ from agent.file_safety import (
 from agent.redact import redact_sensitive_text
 from agent.runtime_cwd import resolve_agent_cwd
 
-from .errors import ACPCancelledError, ACPError, ACPTimeoutError
+from .errors import ACPCancelledError, ACPError, ACPTimeoutError, _safe_cause, _safe_detail
 from .mcp import load_mcp_servers
 
 
 # Command catalogs and tool results can exceed asyncio's default 64 KiB line limit.
 DEFAULT_STREAM_LIMIT_BYTES = 16 * 1024 * 1024
+_STDERR_LIMIT_BYTES = 8192
 # SDK 0.9 closes stdin before its process wait; its drain/wait_closed steps are
 # unbounded, so cap the whole manager exit and retain time for its normal grace.
 _SHUTDOWN_TIMEOUT = 2.0
@@ -144,6 +144,10 @@ async def _await_agent_process_exit(
     return finish_task.result(), interrupted
 
 
+class _FrameLimitError(ValueError):
+    """Payload-free marker for asyncio's incoming JSONL size rejection."""
+
+
 class _EOFReader(asyncio.StreamReader):
     """Observe terminal stdout reads without a second consumer or SDK patches.
 
@@ -165,9 +169,17 @@ class _EOFReader(asyncio.StreamReader):
                 self.failure_ready.set()
             return line
         except Exception as exc:
-            self.failure = exc
+            # readline wraps LimitOverrunError in ValueError. Replace it before
+            # the SDK logs a traceback; never include the rejected frame.
+            if isinstance(exc, asyncio.LimitOverrunError) or isinstance(
+                exc.__context__, asyncio.LimitOverrunError
+            ):
+                failure = _FrameLimitError("OMP ACP incoming frame exceeds the stream limit.")
+            else:
+                failure = _safe_cause(exc)
+            self.failure = failure
             self.failure_ready.set()
-            raise
+            raise failure from None
 
 
 @asynccontextmanager
@@ -432,19 +444,46 @@ def _fs_write_text_file(params: Mapping[str, Any], cwd: str) -> None:
     path.write_text(str(params.get("content") or ""), encoding="utf-8")
 
 
-async def _drain_stderr(stream: asyncio.StreamReader, tail: deque[str]) -> None:
-    pending = ""
+class _StderrDiagnostics:
+    """Bound the entire block; never publish a context-free secret suffix.
+
+    Chunk and newline boundaries are not redaction boundaries. If the whole
+    block cannot be retained, discard it permanently while continuing to drain.
+    """
+
+    def __init__(self) -> None:
+        self._data = bytearray()
+        self._overflow = False
+        self._finished = False
+
+    @property
+    def retained_bytes(self) -> int:
+        return len(self._data)
+
+    def feed(self, chunk: bytes) -> None:
+        if self._overflow:
+            return
+        if len(self._data) + len(chunk) > _STDERR_LIMIT_BYTES:
+            self._data.clear()
+            self._overflow = True
+        else:
+            self._data.extend(chunk)
+
+    def finish(self) -> None:
+        self._finished = True
+
+    def text(self) -> str:
+        if self._overflow:
+            return "[stderr omitted: diagnostic byte limit exceeded]"
+        if not self._finished:
+            return "[stderr omitted: incomplete diagnostic block]"
+        return _safe_detail(self._data.decode("utf-8", errors="replace")).strip()
+
+
+async def _drain_stderr(stream: asyncio.StreamReader, tail: _StderrDiagnostics) -> None:
     while chunk := await stream.read(4096):
-        lines = (pending + chunk.decode("utf-8", errors="replace")).splitlines(keepends=True)
-        pending = ""
-        if lines and not lines[-1].endswith(("\n", "\r")):
-            pending = lines.pop()
-        tail.extend(line.rstrip("\r\n") for line in lines)
-        if len(pending) > 8192:
-            tail.append(pending[-8192:])
-            pending = ""
-    if pending:
-        tail.append(pending)
+        tail.feed(chunk)
+    tail.finish()
 
 
 async def _wait_for_stderr(task: asyncio.Task[None] | None, timeout: float = 0.5) -> None:
@@ -454,9 +493,12 @@ async def _wait_for_stderr(task: asyncio.Task[None] | None, timeout: float = 0.5
         await asyncio.wait_for(asyncio.shield(task), timeout=timeout)
 
 
-def _process_exit_error(process: asyncio.subprocess.Process, tail: deque[str]) -> RuntimeError:
-    stderr_text = redact_sensitive_text("\n".join(tail), force=True).strip()
-    return RuntimeError(f"OMP ACP process exited early: {stderr_text or f'exit code {process.returncode}'}")
+def _process_exit_error(
+    process: asyncio.subprocess.Process, tail: _StderrDiagnostics,
+) -> RuntimeError:
+    message = f"OMP ACP process exited early (exit code {process.returncode})"
+    stderr_text = tail.text()
+    return RuntimeError(f"{message}: {stderr_text}" if stderr_text else message)
 
 
 def _request_phase(method: str) -> str:
@@ -623,7 +665,7 @@ class _SessionState:
     callbacks: _SessionCallbacks
     process: asyncio.subprocess.Process
     stderr_task: asyncio.Task[None] | None
-    stderr_tail: deque[str]
+    stderr_tail: _StderrDiagnostics
     request_context: _RequestContext
     stdout: _EOFReader
 
@@ -837,7 +879,7 @@ class ACPRuntime:
                     method=method,
                     prompt_dispatched=context.prompt_dispatched,
                     cause=exc,
-                ) from exc
+                ) from _safe_cause(exc)
             raise
         except Exception as exc:
             if context.cancel_requested and method == "session/prompt":
@@ -847,17 +889,29 @@ class ACPRuntime:
                     method=method,
                     prompt_dispatched=context.prompt_dispatched,
                     cause=exc,
-                ) from exc
+                ) from _safe_cause(exc)
             if isinstance(exc, ACPCancelledError):
                 raise
             rpc_code = getattr(exc, "code", None)
-            if not isinstance(rpc_code, (int, str)) or isinstance(rpc_code, bool):
+            if type(rpc_code) is not int:
                 rpc_code = None
+            if state.stdout.failure is not None and not isinstance(exc, _FrameLimitError):
+                await _wait_for_stderr(state.stderr_task)
+            message = f"OMP ACP {context.phase} ({method}) failed"
+            if isinstance(exc, _FrameLimitError):
+                message += (
+                    f": incoming frame exceeds stream_limit_bytes={self._stream_limit_bytes}. "
+                    "Increase plugins.entries.omp-acp-provider.settings.stream_limit_bytes "
+                    "or HERMES_OMP_ACP_STREAM_LIMIT_BYTES for legitimate large messages, "
+                    "then restart Hermes or its gateway. Request timeout is a separate control."
+                )
+            elif state.process.returncode is None:
+                message += f": {_safe_cause(exc)}"
+            if rpc_code is not None:
+                message += f" (RPC code {rpc_code})"
             if state.process.returncode is not None:
                 await _wait_for_stderr(state.stderr_task)
-                message = str(_process_exit_error(state.process, state.stderr_tail))
-            else:
-                message = f"OMP ACP {method} failed: {redact_sensitive_text(str(exc), force=True)}"
+                message += f": {_process_exit_error(state.process, state.stderr_tail)}"
             raise ACPError(
                 message,
                 phase=context.phase,
@@ -867,7 +921,7 @@ class ACPRuntime:
                 prompt_dispatched=context.prompt_dispatched,
                 failure_kind=_failure_kind(method, exc, context.prompt_dispatched),
                 cause=exc,
-            ) from exc
+            ) from _safe_cause(exc)
         finally:
             if context.prompt_task is response_task:
                 context.prompt_task = None
@@ -889,18 +943,18 @@ class ACPRuntime:
         try:
             mcp_servers = load_mcp_servers(enabled=self._mcp_enabled) if allow_file_requests else []
         except Exception as exc:
-            detail = redact_sensitive_text(str(exc), force=True)
+            detail = _safe_detail(str(exc))
             raise ACPError(
                 f"Invalid OMP ACP configuration: {detail}",
                 phase="configuration",
                 prompt_dispatched=False,
                 failure_kind="deterministic",
                 cause=exc,
-            ) from exc
+            ) from _safe_cause(exc)
         task, generation = self._begin_session(request_context)
         process: asyncio.subprocess.Process | None = None
         stderr_task: asyncio.Task[None] | None = None
-        stderr_tail: deque[str] = deque(maxlen=40)
+        stderr_tail = _StderrDiagnostics()
         callbacks = _SessionCallbacks(
             self._acp_cwd,
             allow_file_requests=allow_file_requests,
@@ -990,11 +1044,11 @@ class ACPRuntime:
                     prompt_dispatched=False,
                     failure_kind="deterministic",
                     cause=exc,
-                ) from exc
+                ) from _safe_cause(exc)
             except ACPError:
                 raise
             except (RuntimeError, ValueError) as exc:
-                detail = redact_sensitive_text(str(exc), force=True)
+                detail = str(_safe_cause(exc))
                 raise ACPError(
                     f"OMP ACP setup failed: {detail}",
                     phase=request_context.phase,
@@ -1002,7 +1056,7 @@ class ACPRuntime:
                     prompt_dispatched=request_context.prompt_dispatched,
                     failure_kind="deterministic",
                     cause=exc,
-                ) from exc
+                ) from _safe_cause(exc)
         finally:
             cancel_task = request_context.cancel_task
             if cancel_task is not None and not cancel_task.done():
@@ -1079,46 +1133,61 @@ class ACPRuntime:
                         "".join(state.callbacks.reasoning_parts),
                         str(_as_mapping(prompt_response).get("stopReason") or ""),
                     )
+        except (ACPError, ACPCancelledError) as exc:
+            # Explicit safe causes do not stop Python from retaining the raw
+            # implicit context. Remove it at the public runtime boundary.
+            exc.__context__ = None
+            raise
         except asyncio.CancelledError as exc:
             if request_context.cancel_requested:
-                raise ACPCancelledError(
+                failure = ACPCancelledError(
                     "OMP ACP request was interrupted.",
                     phase=request_context.phase,
                     method=request_context.method,
                     prompt_dispatched=request_context.prompt_dispatched,
                     cause=exc,
-                ) from exc
-            raise
+                )
+            else:
+                raise
         except TimeoutError as exc:
             if request_context.cancel_requested:
-                raise ACPCancelledError(
+                failure = ACPCancelledError(
                     "OMP ACP request was interrupted.",
                     phase=request_context.phase,
                     method=request_context.method,
                     prompt_dispatched=request_context.prompt_dispatched,
                     cause=exc,
-                ) from exc
-            failure_kind = (
-                "outcome_unknown"
-                if request_context.prompt_dispatched is not False
-                else "pre_dispatch_transport"
-            )
-            raise ACPTimeoutError(
-                "Timed out waiting for OMP ACP response.",
-                phase=request_context.phase,
-                method=request_context.method,
-                prompt_dispatched=request_context.prompt_dispatched,
-                failure_kind=failure_kind,
-                cause=exc,
-            ) from exc
+                )
+            else:
+                failure_kind = (
+                    "outcome_unknown"
+                    if request_context.prompt_dispatched is not False
+                    else "pre_dispatch_transport"
+                )
+                failure = ACPTimeoutError(
+                    "Timed out waiting for OMP ACP response.",
+                    phase=request_context.phase,
+                    method=request_context.method,
+                    prompt_dispatched=request_context.prompt_dispatched,
+                    failure_kind=failure_kind,
+                    cause=exc,
+                )
+        # Raise after leaving the handler so __context__ cannot retain a raw
+        # transport/deadline exception behind the sanitized cause snapshot.
+        raise failure
 
     async def list_models(self, timeout_seconds: float) -> list[str]:
         try:
             async with asyncio.timeout(timeout_seconds):
                 async with self._session(allow_file_requests=False) as state:
                     return _session_model_ids(state.session)
+        except (ACPError, ACPCancelledError) as exc:
+            exc.__context__ = None
+            raise
         except TimeoutError as exc:
-            raise TimeoutError("Timed out waiting for OMP ACP response.") from exc
+            failure = TimeoutError("Timed out waiting for OMP ACP response.")
+            failure.__cause__ = _safe_cause(exc)
+        raise failure
 
     def close(self) -> None:
         with self._active_lock:
