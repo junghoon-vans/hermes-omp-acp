@@ -32,6 +32,8 @@ hermes plugins enable omp-acp-provider
 
 If `pip` points to another user-managed environment, use Hermes's Python: `python -m pip install hermes-omp-acp`. This package does not install Hermes or OMP.
 
+Select the intended Hermes home with `HERMES_HOME` before running Hermes commands.
+
 Do not use `pip` to modify a Hermes PM-managed or Nix-managed environment. For PM-managed installations, use Hermes's plugin installer and let PM perform the dependency transaction. For Nix-managed installations, declare the provider and SDK through Nix and rebuild the environment. Restart Hermes (or its gateway) after installing/enabling the plugin or changing dependencies.
 
 `omp-acp-provider` is the plugin ID used for installation and activation. `omp-acp` is the model provider ID used in model settings and `--provider`; do not replace it with the plugin ID.
@@ -70,7 +72,7 @@ hermes plugins install junghoon-vans/hermes-omp-acp
 hermes plugins enable omp-acp-provider
 ```
 
-For a named profile, prefix both commands with `hermes -p <profile>`. Choose either this route or the PyPI installation above; you do not need both.
+To use another Hermes home, set `HERMES_HOME` to that home before running either command. Choose either this route or the PyPI installation above; you do not need both.
 
 For PM-managed Hermes, use this plugin-installer route and let PM own dependency admission. CI tests the wheel with the provider already enabled in temporary configuration; it does not run `hermes plugins enable` or cover the full PM-managed source-Git installation and dependency transaction. See [verification](docs/verification.md#continuous-integration) for the tested admission limits.
 
@@ -81,6 +83,58 @@ For local source installation and development, see [CONTRIBUTING.md](CONTRIBUTIN
 ## Configuration
 
 See [Configuration](docs/configuration.md) for per-profile plugin settings, environment overrides, MCP forwarding, and delegation model routes. Launch options default to `omp acp`; MCP forwarding is enabled by default.
+
+## Optional search skill
+
+The repository includes a bounded public-web research skill at
+[`skills/search/SKILL.md`](skills/search/SKILL.md). The `hermes-omp-acp` wheel
+ships the shared skill resource under the Python environment's `share/hermes-omp-acp/skills/search`.
+Hermes excludes `.venv` and `venv` ancestors; use a differently named environment
+or an external source/Nix-store skill root. See the [skill guide](docs/skills/search.md).
+After installing the wheel into the same Python environment as Hermes, run:
+
+```sh
+hermes-omp-acp-skills
+```
+
+The command prints the absolute shared skill directory containing
+`search/SKILL.md`; merge that directory into `skills.external_dirs` in the
+`config.yaml` of each intended Hermes home, preserving existing entries:
+
+```yaml
+skills:
+  external_dirs:
+    - /absolute/path/printed/by/hermes-omp-acp-skills
+```
+
+For a source checkout, configure the absolute path to its `skills` directory
+instead. No copying is needed. Select the intended Hermes home with
+`HERMES_HOME` before using generic Hermes commands:
+
+```sh
+export HERMES_HOME=/absolute/path/to/intended/hermes-home
+hermes skills list
+hermes chat -s search
+```
+
+Installing or enabling `omp-acp-provider` alone does **not** register or
+discover the skill. In Hermes 0.22.5, the provider entry point in installed
+`providers/__init__.py` calls the no-argument `register()` hook (around lines
+525–540 and 596–610); general plugin discovery in
+`hermes_cli/plugins_discovery.py` (around lines 286–290) skips
+`kind: model-provider`. Skill loading and `skills.external_dirs` are handled on
+the separate `agent/skill_utils.py` path (around lines 337–363). Explicit
+`skills.external_dirs` is the minimal supported choice without changing the
+provider boundary. Automatic provider registration would require an authorized
+general-plugin adapter or an upstream provider skill hook; neither is included.
+
+The skill requires an existing delegation model route using provider
+`omp-acp`, plus working OMP-native `web_search` and public URL `read` tools.
+See [delegation model routes](docs/configuration.md#official-delegation-model-routes)
+for the Advanced Delegation setup and the
+[search skill guide](docs/skills/search.md) for distribution, prerequisites,
+and limitations. This describes the research workflow; it does not claim that
+any particular delegated research task has succeeded.
 
 ## Documentation
 

@@ -43,6 +43,9 @@ jobs:
     name: ${{ matrix.name }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      # Hermes excludes .venv/venv ancestors when indexing external skills.
+      UV_PROJECT_ENVIRONMENT: runtime-env
     strategy:
       fail-fast: false
       matrix:
@@ -97,10 +100,10 @@ jobs:
           path: .hermes-upstream
       - name: Install official Hermes dependencies and provider wheel together
         run: |
-          uv venv --python "${{ matrix.python }}" .hermes-upstream/.venv
+          uv venv --python "${{ matrix.python }}" .hermes-upstream/runtime-env
           (
             cd .hermes-upstream
-            uv pip install --python .venv/bin/python \
+            uv pip install --python runtime-env/bin/python \
               -r pyproject.toml \
               --extra "${{ matrix.hermes_extra }}" \
               "$GITHUB_WORKSPACE"/dist/*.whl
@@ -108,7 +111,7 @@ jobs:
           git -C .hermes-upstream diff --exit-code HEAD -- pyproject.toml uv.lock
       - name: Check installed package and dependency compatibility
         run: |
-          .hermes-upstream/.venv/bin/python - <<'PY'
+          .hermes-upstream/runtime-env/bin/python - <<'PY'
           from importlib.metadata import distribution, version
           from pathlib import Path
           import subprocess
@@ -119,7 +122,7 @@ jobs:
           from packaging.version import Version
 
           source = Path(".hermes-upstream").resolve()
-          environment_python = source / ".venv" / "bin" / "python"
+          environment_python = source / "runtime-env" / "bin" / "python"
           check = subprocess.run(
               ["uv", "pip", "check", "--python", str(environment_python)],
               capture_output=True,
@@ -196,7 +199,7 @@ jobs:
       - name: Smoke installed discovery and native ACP without a model call
         env:
           PYTHONPATH: ${{ github.workspace }}/.hermes-upstream
-        run: .hermes-upstream/.venv/bin/python -P .github/scripts/smoke_discovery.py
+        run: .hermes-upstream/runtime-env/bin/python -P .github/scripts/smoke_discovery.py
       - name: Exercise the installed provider through Hermes
         run: |
           export PYTHONPATH="$GITHUB_WORKSPACE/.hermes-upstream"
