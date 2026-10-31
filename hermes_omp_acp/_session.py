@@ -896,7 +896,30 @@ class ACPRuntime:
             if type(rpc_code) is not int:
                 rpc_code = None
             if state.stdout.failure is not None and not isinstance(exc, _FrameLimitError):
-                await _wait_for_stderr(state.stderr_task)
+                # Pipe EOF is not process exit. Give child teardown and stderr
+                # collection one shared 500ms grace (the existing stderr budget),
+                # even when stderr has already closed. asyncio's loop clock is
+                # monotonic; a live peer cannot extend this diagnostic deadline.
+                deadline = asyncio.get_running_loop().time() + 0.5
+                diagnostics = [exit_task]
+                if state.stderr_task is not None:
+                    diagnostics.append(state.stderr_task)
+                # EOF is already the primary failure: a caller deadline during
+                # enrichment must not replace it. Explicit cancellation still
+                # takes precedence, including when it interrupts this wait.
+                with suppress(asyncio.CancelledError):
+                    await asyncio.wait(
+                        diagnostics,
+                        timeout=max(0.0, deadline - asyncio.get_running_loop().time()),
+                    )
+                if context.cancel_requested:
+                    raise ACPCancelledError(
+                        "OMP ACP request was interrupted.",
+                        phase=context.phase,
+                        method=method,
+                        prompt_dispatched=context.prompt_dispatched,
+                        cause=exc,
+                    ) from _safe_cause(exc)
             message = f"OMP ACP {context.phase} ({method}) failed"
             if isinstance(exc, _FrameLimitError):
                 message += (
@@ -910,7 +933,8 @@ class ACPRuntime:
             if rpc_code is not None:
                 message += f" (RPC code {rpc_code})"
             if state.process.returncode is not None:
-                await _wait_for_stderr(state.stderr_task)
+                if state.stdout.failure is None or isinstance(exc, _FrameLimitError):
+                    await _wait_for_stderr(state.stderr_task)
                 message += f": {_process_exit_error(state.process, state.stderr_tail)}"
             raise ACPError(
                 message,
