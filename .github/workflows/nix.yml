@@ -1,0 +1,26 @@
+name: Nix packaging
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  nix:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: cachix/install-nix-action@v31
+      - name: Build provider and check installed environment
+        run: |
+          nix build --no-link --no-update-lock-file
+          nix flake check --no-update-lock-file --print-build-logs
