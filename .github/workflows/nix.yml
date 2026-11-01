@@ -52,3 +52,22 @@ jobs:
         run: |
           nix build --no-link --no-update-lock-file
           nix flake check --no-update-lock-file --print-build-logs
+      - name: Reject a sealed host without the ACP SDK
+        run: |
+          if nix build --no-link --impure --print-build-logs --expr '
+            let
+              flake = builtins.getFlake (toString ./.);
+              pkgs = import flake.inputs.nixpkgs { system = builtins.currentSystem; };
+            in flake.lib.mkHermesPlugin {
+              hermes = {
+                python = pkgs.python314;
+                hermesVenv = pkgs.python314.withPackages (ps: [ ps.packaging ]);
+              };
+            }
+          ' > rejected-host.log 2>&1; then
+            cat rejected-host.log
+            echo "::error::A sealed host without the SDK was accepted"
+            exit 1
+          fi
+          cat rejected-host.log
+          grep -F 'installed missing' rejected-host.log
