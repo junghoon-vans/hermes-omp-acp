@@ -30,9 +30,10 @@ scope](verification.md#pm-managed-git-installation) covers a pinned official
 baseline with an isolated local Git remote, not GitHub transport or unattended
 installation without scan consent.
 
-For Nix-managed installations, declare the provider and SDK through Nix and
-rebuild; do not run pip inside the managed environment. For editable source
-development, use [Contributing](../CONTRIBUTING.md#provider-unit-tests).
+For Nix-managed installations, use the [Nix flake and same-interpreter
+composition guide](nix.md) and rebuild; do not run pip inside the managed
+environment. For editable source development, use
+[Contributing](../CONTRIBUTING.md#provider-unit-tests).
 
 Restart Hermes or its gateway after installing/enabling plugins or changing
 dependencies. Enabling the source `omp-acp-provider` plugin alone does not
