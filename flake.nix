@@ -14,6 +14,12 @@
       pkgsFor = system:
         import nixpkgs { inherit system; overlays = [ self.overlays.default ]; };
     in {
+      # Build in the host's interpreter scope, validating its sealed runtime
+      # instead of adding our standalone SDK closure to extraPythonPackages.
+      lib.mkHermesPlugin = { hermes }:
+        ((hermes.python.pkgs.overrideScope pythonOverlay).hermes-omp-acp.override {
+          hermesRuntime = hermes;
+        });
       overlays.python = pythonOverlay;
       overlays.default = final: prev: {
         pythonPackagesExtensions = prev.pythonPackagesExtensions ++ [ pythonOverlay ];
@@ -35,10 +41,16 @@
               test -f "$(cat skills-path)/omp-web-search/SKILL.md"
               touch "$out"
             '';
+          sealedCheck = pythonPackages: import ./nix/check-sealed.nix {
+            inherit pkgs pythonPackages;
+            inherit (self.lib) mkHermesPlugin;
+          };
         in {
           package = self.packages.${system}.default;
           installed = installedCheck pkgs.python313Packages;
           installed314 = installedCheck pkgs.python314Packages;
+          sealed = sealedCheck pkgs.python313Packages;
+          sealed314 = sealedCheck pkgs.python314Packages;
         });
     };
 }

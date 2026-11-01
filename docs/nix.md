@@ -19,8 +19,10 @@ The default package uses Python 3.13, suitable for Hermes 0.21.4, and includes
 both plugin entry points, the `hermes-omp-acp-skills` command, packaged OMP ACP
 usage guidance, and the external `omp-web-search` skill. Checks inspect the
 installed distribution outside the source tree and exercise the command in
-composed Python 3.13 and 3.14 environments. They do not launch Hermes or call
-a model.
+composed Python 3.13 and 3.14 environments. Sealed-host checks additionally
+reject missing and incompatible SDKs. Flake checks do not launch Hermes or
+call a model; `nix/check-hermes.py` checks discovery and skill loading when
+run with a composed Hermes runtime.
 
 Outputs cover x86_64/aarch64 Linux and Darwin. CI builds on Ubuntu and macOS;
 other architectures need their own builders. Update dependencies explicitly
@@ -71,6 +73,46 @@ Add this flake as an input named `hermes-omp-acp` to your configuration and pin
 it with your configuration's lockfile. You may set
 `inputs.hermes-omp-acp.inputs.nixpkgs.follows = "nixpkgs"`; that selects your
 nixpkgs revision instead of this repository's lock, so rerun the checks there.
+
+### Sealed Hermes packages (0.22.x)
+
+For Hermes packages exposing `python`, `hermesVenv`, and
+`override { extraPythonPackages = ...; }`, use the host-aware factory:
+
+```nix
+let
+  hermes = inputs.hermes-agent.packages.${system}.messaging.override {
+    extraDependencyGroups = [ "messaging" "acp" ];
+  };
+  provider = inputs.hermes-omp-acp.lib.mkHermesPlugin { inherit hermes; };
+in hermes.override {
+  extraPythonPackages = [ provider ];
+}
+```
+
+The factory builds the provider for `hermes.python` and checks the wheel's
+unchanged runtime requirements against **that host's sealed `hermesVenv`**.
+The sealed runtime must already supply a compatible ACP SDK (0.9.0 on the
+supported Hermes baseline). Missing or incompatible dependencies fail the
+provider build. The SDK remains available for normal build-time dependency
+and import checks, but is not propagated into the host's `PYTHONPATH`.
+Hermes's duplicate-package guard remains enabled.
+
+Use the same base `hermes` for the factory and the final override, including
+any `extraDependencyGroups` override. A provider validated against one host
+is not validated for a different host. The standalone packages and Python
+overlays below still include their SDK; do not pass them directly to a
+sealed host or strip dependencies in the consumer.
+
+The factory does not enable plugins or configure credentials. Point external
+skill configuration at `"${provider}/share/hermes-omp-acp/skills"` if needed.
+For installed verification, run `nix/check-hermes.py` with
+`hermes.hermesVenv/bin/python` and
+`PYTHONPATH="${provider}/${hermes.python.sitePackages}"`. The script creates a
+temporary profile before importing Hermes, discovers the installed entry points,
+and explicitly loads both skill bodies outside the source tree.
+
+### User-composed Python environments
 
 For a Python 3.14 Hermes package, apply the overlay to its nixpkgs instance:
 

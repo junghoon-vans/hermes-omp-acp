@@ -1,4 +1,6 @@
-{ lib, buildPythonPackage, pythonOlder, hatchling, pyyaml, agent-client-protocol }:
+{ lib, buildPythonPackage, pythonOlder, hatchling, pyyaml, agent-client-protocol
+, hermesRuntime ? null
+}:
 let
   source = lib.fileset.toSource {
     root = ../.;
@@ -23,7 +25,17 @@ in buildPythonPackage {
   src = source;
   build-system = [ hatchling pyyaml ];
   disabled = pythonOlder "3.11";
-  dependencies = [ agent-client-protocol ];
+  # A sealed Hermes host already owns the SDK. Keep the normal wheel requirement
+  # and build-time checks, but never propagate a second SDK into its PYTHONPATH.
+  dependencies = lib.optional (hermesRuntime == null) agent-client-protocol;
+  nativeBuildInputs = lib.optional (hermesRuntime != null) agent-client-protocol;
+  postInstall = lib.optionalString (hermesRuntime != null) ''
+    (
+      cd "$TMPDIR"
+      PYTHONPATH="$out/${hermesRuntime.python.sitePackages}" \
+        ${hermesRuntime.hermesVenv}/bin/python ${./check-runtime-requirements.py}
+    )
+  '';
   # Nix's Python interpreter prefix is not this distribution's output prefix.
   # Keep resources tied to the package, including in a composed withPackages env.
   postPatch = ''
