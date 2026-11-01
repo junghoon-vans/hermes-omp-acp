@@ -1,6 +1,67 @@
 # Configuration
 
-Use the active Hermes profile's `config.yaml`. Merge these entries into the existing `plugins` section; do not replace other enabled plugins or settings.
+Use the active Hermes profile's `config.yaml`. Select the intended home with
+`HERMES_HOME` before running Hermes commands. Merge examples into existing
+configuration; preserve other plugins, routes, and settings.
+
+## Installation
+
+The [quick start](../README.md#quick-start) covers a user-managed Python
+environment. Install the provider in the same environment as Hermes; the package
+does not install Hermes or OMP. Choose one installation route, not both.
+
+The distribution is `hermes-omp-acp`, the import package is `hermes_omp_acp`,
+the provider plugin ID is `omp-acp-provider`, and the model-provider ID is
+`omp-acp`. These names are not interchangeable.
+
+### PM-managed or source-plugin installation
+
+Use Hermes's source-plugin installer:
+
+```sh
+hermes plugins install junghoon-vans/hermes-omp-acp
+hermes plugins enable omp-acp-provider
+```
+
+For PM-managed Hermes, let PM own dependency admission; do not modify its
+environment with pip. Review the installer's scan findings and dependency
+transaction rather than bypassing them. The [PM verification
+scope](verification.md#pm-managed-git-installation) covers a pinned official
+baseline with an isolated local Git remote, not GitHub transport or unattended
+installation without scan consent.
+
+For Nix-managed installations, declare the provider and SDK through Nix and
+rebuild; do not run pip inside the managed environment. For editable source
+development, use [Contributing](../CONTRIBUTING.md#provider-unit-tests).
+
+Restart Hermes or its gateway after installing/enabling plugins or changing
+dependencies. Enabling the source `omp-acp-provider` plugin alone does not
+install the optional companion's Python entry point.
+
+### Compatibility
+
+The minimum is Hermes 0.21.4 ([`v2026.9.21`](https://github.com/NousResearch/hermes-agent/releases/tag/v2026.9.21))
+with OMP 15.7.6. Use Python 3.11–3.13 for Hermes 0.21.4 and Python 3.14 for
+Hermes 0.22.x. OMP must have a configured model and be available to the process
+launching Hermes, including a gateway service.
+
+The provider declares `agent-client-protocol>=0.9.0,<0.10.0`; official Hermes's
+source `acp` extra pins `agent-client-protocol==0.9.0`. Preserve that pin and
+resolve dependencies together. Never force an SDK version, patch upstream pins,
+or use resolver bypasses to make an incompatible Hermes release install.
+See [Verification](verification.md#continuous-integration) for the tested matrix.
+
+## Main model
+
+Use the [quick-start model configuration](../README.md#quick-start) for the main
+Hermes agent. Replace the example with an OMP `provider/model` ID available to
+your account. An explicitly requested model must be selected in the same ACP
+session before prompting; unavailable models, selection failures, and returned
+model mismatches fail rather than falling back to OMP's default.
+
+Each completion opens a new OMP process and ACP session. The provider does not
+retain sessions or manage worktrees, and streaming is buffered. Delegation is a
+separate route configuration described [below](#official-delegation-model-routes).
 
 ## Plugin settings
 
@@ -135,3 +196,39 @@ Replace `model` with an OMP model ID available to your account. Start a new Herm
 **Do not copy `base_url: acp://omp` from the main-model example into a delegation route.** Hermes's delegation resolver treats an explicit `base_url` as a custom endpoint; use `provider: omp-acp` and let the provider resolve its executable and arguments.
 
 This routes Hermes subagents to OMP models. The provider does not manage retained OMP sessions or worktrees; each completion starts a new ACP session. Route-level `reasoning_effort` and `service_tier` are not mapped to OMP settings by this provider.
+
+## Optional bundled OMP ACP usage skill
+
+The distribution includes an optional general-plugin companion for the usage
+skill `omp-acp-skills:omp-acp`. It is distinct from the external
+[`omp-web-search` research skill](skills/omp-web-search.md).
+
+The companion's Python entry point is installed with `hermes-omp-acp`, either
+from the wheel in Hermes's Python environment or through Hermes PM's
+dependency-install transaction. Installing only the source provider plugin does
+not install or discover that entry point.
+
+After installing the distribution and enabling `omp-acp-provider`, enable the
+companion separately:
+
+```sh
+hermes plugins enable omp-acp-skills
+```
+
+In an agent session, load it with
+`skill_view(name='omp-acp-skills:omp-acp')`. Enabling the companion registers the
+namespaced skill but does not automatically load its body. No copying or
+`skills.external_dirs` entry is needed.
+
+The companion does not enable/configure the provider, create a delegation route,
+or register `omp-web-search`. For subagent use, the configured
+[delegation route](#official-delegation-model-routes) remains required.
+
+If Hermes discovers the companion but its plugin context has no callable
+`register_skill`, it warns that the skill cannot be registered; the provider
+continues to work. Use a Hermes version with the bundled-skill API. The provider's
+minimum Hermes version alone does not guarantee this optional API.
+
+The [packaged skill instructions](../hermes_omp_acp/skills/omp-acp/SKILL.md)
+cover route selection, prompt-context minimization, approval boundaries, and
+safe handling of failures; they are workflow guidance, not security enforcement.

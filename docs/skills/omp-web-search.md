@@ -8,11 +8,11 @@ the import package. It is not a standalone Hermes plugin.
 
 ## Install and expose the shared skill
 
-Install the wheel into the same Python environment as Hermes, then print the
-absolute shared skill directory:
+First [install the provider distribution](../configuration.md#installation) in
+the same environment as Hermes, respecting PM/Nix dependency ownership. Then
+print the absolute shared skill directory in that environment:
 
 ```sh
-python -m pip install hermes-omp-acp
 hermes-omp-acp-skills
 ```
 
@@ -59,21 +59,15 @@ The canonical name is `omp-web-search`, formerly `search`. Update preload comman
 and explicit `skill_view` calls to the new name; no legacy alias is shipped.
 The configured parent `skills.external_dirs` path does not change.
 
-## Why provider activation does not discover skills
+## Separate skill discovery
 
-Hermes 0.22.5's provider entry point in installed `providers/__init__.py` invokes
-the provider's no-argument `register()` hook (around lines 525–540 and
-596–610). General plugin discovery in `hermes_cli/plugins_discovery.py` (around
-lines 286–290) skips `kind: model-provider` plugins. Skill loading and the
-supported `skills.external_dirs` configuration live on the separate
-`agent/skill_utils.py` path (around lines 337–363). The current provider
-contract therefore does not provide a skill-registration hook, and enabling
-`omp-acp-provider` alone cannot make this skill appear in Hermes.
+Enabling `omp-acp-provider` alone does not discover this skill. Expose its shared
+directory through `skills.external_dirs` as above. The optional
+[`omp-acp-skills` companion](../configuration.md#optional-bundled-omp-acp-usage-skill)
+registers only the bundled `omp-acp` usage skill, not `omp-web-search`.
 
-The minimal supported choice today is explicit `skills.external_dirs` as above.
-Automatic provider-driven registration would require either a separately
-implemented general-plugin adapter (a boundary change that must be authorized)
-or an upstream model-provider skill hook. Neither is added by this package.
+For the provider/general-plugin distinction, see
+[skill discovery internals](../implementation.md#skill-discovery).
 
 ## Prerequisites and route check
 

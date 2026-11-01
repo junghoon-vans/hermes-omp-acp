@@ -1,6 +1,9 @@
 # Contributing
 
-Run development commands from the repository root. This repository builds one Python distribution from the root package.
+Contributor and maintainer guide: development, validation, and publication of
+the single root Python distribution. For installation and usage, start with
+the [README](README.md) and [Configuration](docs/configuration.md).
+Run development commands from the repository root.
 
 ## Package boundary and Python environment
 
@@ -41,9 +44,11 @@ Set `OMP_INTEGRATION_COMMAND` to an absolute executable path to test a specific 
 
 The suite creates isolated homes. Keep any manual Hermes or OMP checks isolated too: point `HERMES_HOME`, `PI_CODING_AGENT_DIR`, and any other profile/data paths at temporary directories, and do not run tests against or modify a production or personal profile.
 
-CI runs both suites against the provider wheel in three Hermes/OMP environments: Hermes 0.21.4 (`v2026.9.21`) with OMP 15.7.6 on Python 3.11; the dynamically resolved latest Hermes release with latest OMP on Python 3.14 using the `acp` extra; and Hermes 0.22.5 at pinned commit [`bf0203a`](https://github.com/NousResearch/hermes-agent/commit/bf0203a794a07aac3ff764972ab9087baa4e4f4e) with latest OMP on Python 3.14 using the `all` extra. Latest currently resolves to 0.22.5, but exercises `acp` while the fixed commit exercises `all`. Each job jointly resolves the provider wheel and unmodified Hermes source `pyproject.toml`, checks the installed SDK against both the original Hermes `acp` requirement and the provider requirement, and rejects changes to upstream `pyproject.toml` or `uv.lock`. CI runs `uv pip check`; for a nonzero report it accepts only incompatibilities exactly accounted for by the official Hermes lock's declared overrides using Hermes's `pm.pip_check` helper. Unrecognized reports fail, and a failing check without that helper fails raw. There is no separate SDK-version matrix because the official compatibility points pin 0.9.0. A separate installed-wheel discovery/import and native ACP catalog smoke makes no model call. See [verification](docs/verification.md) for test scope and installation limits.
-
-The independent PM job bootstraps unmodified Hermes 0.22.5 (`bf0203a`) with `acp`, installs the current exact Git revision from a disposable bare `file://` remote using `hermes plugins install --ref <sha> --enable --yes-deps --force`, and verifies committed enablement and fresh-process provider discovery. Here `--force` confirms the official scanner's `CAUTION` verdict for trusted local code; it does not override SDK requirements or dependency admission, and scanning remains on. No provider wheel is preinstalled. Hermes 0.21.4 lacks this PM transaction surface and retains its wheel/runtime coverage. The PM lane needs network access for official pinned tools and locked Python packages, but no model or credentials. See [PM-managed Git installation](docs/verification.md#pm-managed-git-installation) for the local command, isolation contract, and limits.
+The [verification reference](docs/verification.md#continuous-integration) owns
+the CI matrix, SDK compatibility gates, and installed-wheel discovery scope.
+For the independent official PM admission scenario, its local command, scan
+consent, isolation requirements, and network limits, see
+[PM-managed Git installation](docs/verification.md#pm-managed-git-installation).
 
 ## Build the distribution
 

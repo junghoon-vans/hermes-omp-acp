@@ -1,5 +1,9 @@
 # How it works
 
+Contributor reference for the runtime and packaging boundaries. For user setup,
+start with [Configuration](configuration.md); for tested behavior and evidence
+limits, see [Verification](verification.md).
+
 - The `omp-acp-provider` plugin registers the `omp-acp` model provider through Hermes's external-process model-provider interface.
 - Launches `omp acp` and discovers its available models through ACP.
 - Implements `OmpACPClient` independently using the official `agent-client-protocol` Python SDK for subprocess transport and JSON-RPC.
@@ -70,3 +74,24 @@ The native file has more options than the ACP transport records and OMP's mapper
 OMP 18.12.6 additionally connects its ACP MCP manager to the session's auth storage, enabling conditional reuse of existing URL-keyed OAuth credentials without the provider forwarding `auth`/`oauth` objects. This feature is not available at the package's OMP 15.7.6 minimum. Process-wide `OMP_MCP_TIMEOUT_MS` works through OMP's own environment in both versions, independently of the omitted per-server `timeout`.
 
 The ACP manager is separate from the SDK session's MCP manager, which is disabled to avoid on-disk discovery. In the source-reviewed OMP 18.12.6 wiring, refreshing tools does not connect the ACP manager's server instructions to the SDK's system-prompt provider. Therefore, omitted `instructions: false` must not be described as enabling server instructions. These upstream source findings and their runtime-verification limits are recorded in [Verification](verification.md#source-reviewed-mcp-behavior).
+
+## Skill discovery
+
+The distribution has separate Python entry points for the `omp-acp-provider`
+model-provider plugin and the `omp-acp-skills` general-plugin companion.
+Hermes's provider discovery invokes the provider's no-argument `register()`
+hook; that contract is not a skill-registration hook.
+
+The companion's [`register(ctx)`](../hermes_omp_acp/skills_plugin.py) uses
+`ctx.register_skill` when callable to register the packaged `omp-acp` usage
+instructions. It logs a warning and returns when the host lacks that API,
+without changing provider registration.
+
+The external `omp-web-search` resource is separate. The wheel installs it under
+`share/hermes-omp-acp/skills`, outside the import package because Hermes excludes
+`site-packages` ancestors from discovery. The
+[`hermes-omp-acp-skills` helper](../hermes_omp_acp/skill_resources.py) prints that
+shared root, or the source checkout's `skills` root for source/editable use;
+it never changes profiles. User setup belongs in the
+[bundled usage-skill configuration](configuration.md#optional-bundled-omp-acp-usage-skill)
+and the [web-search skill guide](skills/omp-web-search.md).

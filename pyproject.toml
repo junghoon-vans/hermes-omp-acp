@@ -20,6 +20,7 @@ hermes-omp-acp-skills = "hermes_omp_acp.skill_resources:main"
 
 [project.entry-points."hermes_agent.plugins"]
 omp-acp-provider = "hermes_omp_acp.provider:register"
+omp-acp-skills = "hermes_omp_acp.skills_plugin"
 
 [tool.hatch.build.targets.wheel]
 packages = ["hermes_omp_acp"]
