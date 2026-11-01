@@ -55,10 +55,6 @@ does not copy resources out of excluded environments. On older Hermes releases,
 a local skill with the same name produces an ambiguity error instead of taking
 precedence; remove the collision or upgrade to tiered-precedence Hermes.
 
-The canonical name is `omp-web-search`, formerly `search`. Update preload commands
-and explicit `skill_view` calls to the new name; no legacy alias is shipped.
-The configured parent `skills.external_dirs` path does not change.
-
 ## Separate skill discovery
 
 Enabling `omp-acp-provider` alone does not discover this skill. Expose its shared

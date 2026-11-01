@@ -10,6 +10,15 @@ configuring the same model credentials again in Hermes.
 
 Hermes sends requests to `omp acp`; OMP handles model inference.
 
+## Use OMP for delegated tasks
+
+Use OMP as the main Hermes model provider with the [quick start](#quick-start),
+or keep your main Hermes model unchanged and delegate selected tasks to OMP.
+The latter requires the official `advanced-delegation` plugin (Hermes 0.22.5+)
+and an explicitly configured [named OMP route](docs/configuration.md#official-delegation-model-routes);
+installing this provider alone does not create a route or expose OMP's `web_search`
+as a Hermes tool.
+
 ## Requirements
 
 - **Hermes 0.21.4+** and its compatible Python: 3.11–3.13 for Hermes 0.21.4;
