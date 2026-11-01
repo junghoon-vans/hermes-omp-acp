@@ -34,7 +34,7 @@ hermes plugins enable omp-acp-provider
 ```
 
 For **PM-managed Hermes**, use the [Hermes plugin installer](docs/configuration.md#pm-managed-or-source-plugin-installation),
-not pip. For **Nix**, declare dependencies and rebuild through Nix.
+not pip. For **Nix**, use the [flake and Python overlay](docs/nix.md) and rebuild.
 
 Merge this into that profile's `config.yaml`, replacing the example model with an
 OMP `provider/model` ID available to your account:
