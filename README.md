@@ -84,6 +84,35 @@ For local source installation and development, see [CONTRIBUTING.md](CONTRIBUTIN
 
 See [Configuration](docs/configuration.md) for per-profile plugin settings, environment overrides, MCP forwarding, and delegation model routes. Launch options default to `omp acp`; MCP forwarding is enabled by default.
 
+## Optional bundled OMP ACP skill
+
+The package also ships an optional Hermes general plugin for the usage skill
+`omp-acp-skills:omp-acp`. Its Python entry point is installed with the
+`hermes-omp-acp` distribution, either from the wheel in Hermes's Python
+environment or through Hermes PM's dependency-install transaction. Installing
+only the source `omp-acp-provider` plugin does not install or discover this
+companion entry point.
+
+After installing the provider package and enabling `omp-acp-provider`, enable
+the companion separately:
+
+```sh
+hermes plugins enable omp-acp-skills
+```
+
+This is a distinct plugin ID from `omp-acp-provider` and the model-provider ID
+`omp-acp`. Enabling it registers the namespaced skill but does not load the
+skill body automatically. In an agent session, load it before OMP integration
+use with `skill_view(name='omp-acp-skills:omp-acp')`. No skill files need to be
+copied and no `skills.external_dirs` entry is needed for this bundled skill.
+The companion does not enable or configure the provider or a delegation route.
+
+If Hermes can discover the companion but its plugin context has no callable
+`register_skill`, it warns that the skill cannot be registered; the provider
+continues to work. Use a Hermes version that supports the bundled-skill API to
+load the skill.
+
+
 ## Optional omp-web-search skill
 
 The repository includes a bounded public-web research skill at
@@ -118,15 +147,10 @@ hermes chat -s omp-web-search
 ```
 
 Installing or enabling `omp-acp-provider` alone does **not** register or
-discover the skill. In Hermes 0.22.5, the provider entry point in installed
-`providers/__init__.py` calls the no-argument `register()` hook (around lines
-525–540 and 596–610); general plugin discovery in
-`hermes_cli/plugins_discovery.py` (around lines 286–290) skips
-`kind: model-provider`. Skill loading and `skills.external_dirs` are handled on
-the separate `agent/skill_utils.py` path (around lines 337–363). Explicit
-`skills.external_dirs` is the minimal supported choice without changing the
-provider boundary. Automatic provider registration would require an authorized
-general-plugin adapter or an upstream provider skill hook; neither is included.
+discover `omp-web-search`. Its shared directory still must be exposed through
+`skills.external_dirs` as described above. The bundled `omp-acp` usage skill is
+registered by a separate, explicitly enabled general plugin; it does not
+register `omp-web-search`.
 
 The skill requires an existing delegation model route using provider
 `omp-acp`, plus working OMP-native `web_search` and public URL `read` tools.

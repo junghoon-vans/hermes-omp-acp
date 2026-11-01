@@ -70,10 +70,10 @@ supported `skills.external_dirs` configuration live on the separate
 contract therefore does not provide a skill-registration hook, and enabling
 `omp-acp-provider` alone cannot make this skill appear in Hermes.
 
-The minimal supported choice today is explicit `skills.external_dirs` as above.
-Automatic provider-driven registration would require either a separately
-implemented general-plugin adapter (a boundary change that must be authorized)
-or an upstream model-provider skill hook. Neither is added by this package.
+The separate `omp-acp-skills` general-plugin adapter registers only the bundled
+`omp-acp` usage skill; it does not register or expose `omp-web-search`.
+`omp-web-search` still requires explicit `skills.external_dirs` as above, and
+enabling `omp-acp-provider` alone does not make it appear in Hermes.
 
 ## Prerequisites and route check
 

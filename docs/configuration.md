@@ -135,3 +135,20 @@ Replace `model` with an OMP model ID available to your account. Start a new Herm
 **Do not copy `base_url: acp://omp` from the main-model example into a delegation route.** Hermes's delegation resolver treats an explicit `base_url` as a custom endpoint; use `provider: omp-acp` and let the provider resolve its executable and arguments.
 
 This routes Hermes subagents to OMP models. The provider does not manage retained OMP sessions or worktrees; each completion starts a new ACP session. Route-level `reasoning_effort` and `service_tier` are not mapped to OMP settings by this provider.
+
+### Optional bundled OMP ACP usage skill
+
+The `omp-acp-skills:omp-acp` skill is an optional general-plugin companion, not
+a delegation route. After installing the `hermes-omp-acp` distribution and
+enabling `omp-acp-provider`, enable the companion separately:
+
+```sh
+hermes plugins enable omp-acp-skills
+```
+
+Load its instructions in an agent session with
+`skill_view(name='omp-acp-skills:omp-acp')`; enabling the plugin does not
+auto-load the skill body. No `skills.external_dirs` entry or skill copy is
+needed. The configured delegation route above remains required when using the
+skill for subagent tasks. See the [README](../README.md#optional-bundled-omp-acp-skill)
+for package installation and compatibility details.
