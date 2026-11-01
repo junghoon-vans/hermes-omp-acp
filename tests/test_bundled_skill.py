@@ -1,14 +1,13 @@
 import json
 import os
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 
 from hermes_omp_acp.skills_plugin import register
-
 
 _RUNTIME_INSPECTION = r'''
 import json
