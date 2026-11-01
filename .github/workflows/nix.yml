@@ -3,6 +3,7 @@ name: Nix packaging
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
 
@@ -20,6 +21,33 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: cachix/install-nix-action@v31
+      - uses: actions/setup-python@v5
+        if: github.ref_type == 'tag'
+        with:
+          python-version: '3.14'
+      - name: Install manifest parser
+        if: github.ref_type == 'tag'
+        run: python -m pip install 'PyYAML>=6,<7'
+      - name: Validate release tag and Nix package version
+        if: github.ref_type == 'tag'
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import os
+          import runpy
+
+          prepare = runpy.run_path(".github/scripts/prepare_release.py")["prepare"]
+          prepare(os.environ["RELEASE_TAG"], Path.cwd())
+          PY
+          system="$(nix eval --impure --raw --expr builtins.currentSystem)"
+          version="$(nix eval --raw --no-update-lock-file ".#packages.$system.default.version")"
+          if [ "$version" != "${RELEASE_TAG#v}" ]; then
+            echo "::error::Tag $RELEASE_TAG does not match Nix package version $version"
+            exit 1
+          fi
+          echo "Validated $RELEASE_TAG against plugin.yaml and Nix package version $version"
       - name: Build provider and check installed environment
         run: |
           nix build --no-link --no-update-lock-file

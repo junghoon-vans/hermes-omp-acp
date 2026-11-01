@@ -26,6 +26,41 @@ Outputs cover x86_64/aarch64 Linux and Darwin. CI builds on Ubuntu and macOS;
 other architectures need their own builders. Update dependencies explicitly
 with `nix flake update`, then repeat both build and checks.
 
+## Stable releases and main
+
+CI keeps PR validation and `main` push builds, and also builds pushed release
+tags (`vX.Y.Z`, optionally followed by `aN`, `bN`, or `rcN`) on Ubuntu and macOS.
+Tag builds validate the checked-out tag against that checkout's `plugin.yaml`,
+Python package identity, and evaluated Nix package version before building.
+They do not fetch `main` to validate a release.
+
+For stable use, select a published release tag that **contains `flake.nix`**;
+older releases such as `v0.2.3` do not contain the flake. The following values
+are placeholders, not a claim that a Nix-enabled release already exists.
+Replace `X.Y.Z` with the same published version for Python and Nix:
+
+```sh
+# Only for a user-managed Hermes Python environment:
+python -m pip install 'hermes-omp-acp==X.Y.Z'
+
+# Build the provider from the matching release source:
+nix build 'github:junghoon-vans/hermes-omp-acp/vX.Y.Z'
+```
+
+For Nix-managed Hermes, use the matching input and the composition below instead
+of pip:
+
+```nix
+inputs.hermes-omp-acp.url = "github:junghoon-vans/hermes-omp-acp/vX.Y.Z";
+```
+
+For development, replace `vX.Y.Z` with `main` and commit your configuration's
+`flake.lock` to pin its resolved commit. Python publication still starts on a
+published GitHub Release; a tag push starts Nix validation without publishing
+Python packages. These workflows are independent: neither waits for the other's
+success. Nix builds do not publish a binary cache; consumers build locally or
+use their existing substituters.
+
 ## Compose with Hermes
 
 Adding the provider as a separate `environment.systemPackages` or Home Manager
