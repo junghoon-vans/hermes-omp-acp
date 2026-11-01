@@ -1,10 +1,34 @@
 # Verification
 
+Contributor reference for automated coverage and recorded manual/source review.
+This page describes the checks, not a claim that they ran for every subsequent
+documentation change. Use [Contributing](../CONTRIBUTING.md) to run tests and
+builds; use [Configuration](configuration.md) for installation.
+
 ## Continuous integration
 
-[CI](https://github.com/junghoon-vans/hermes-omp-acp/actions) checks three installation configurations: minimum Hermes 0.21.4 (`v2026.9.21`) with OMP 15.7.6 on Python 3.11; dynamically resolved latest Hermes with OMP's npm `latest` on Python 3.14 using source extra `acp`; and Hermes 0.22.5 at pinned official commit [`bf0203a`](https://github.com/NousResearch/hermes-agent/commit/bf0203a794a07aac3ff764972ab9087baa4e4f4e) with OMP `latest` on Python 3.14 using source extra `all` (which includes `acp`). Latest currently resolves to 0.22.5, but those rows exercise different extras. CI resolves and installs the provider wheel together with Hermes dependencies read from the official source `pyproject.toml`. Hermes source itself is checked out and imported through `PYTHONPATH`, not installed as a Hermes wheel: its regular installer metadata does not declare the full source dependency set.
+[CI](https://github.com/junghoon-vans/hermes-omp-acp/actions) checks these wheel
+installation configurations:
+
+| Hermes source | OMP | Python | Hermes source extra |
+| --- | --- | --- | --- |
+| 0.21.4 (`v2026.9.21`) | 15.7.6 | 3.11 | `acp` |
+| Dynamically resolved latest release | npm `latest` | 3.14 | `acp` |
+| 0.22.5 at [`bf0203a`](https://github.com/NousResearch/hermes-agent/commit/bf0203a794a07aac3ff764972ab9087baa4e4f4e) | npm `latest` | 3.14 | `all` (includes `acp`) |
+
+The latest-release row is resolved at run time, not a fixed version promise.
+CI resolves and installs the provider wheel together with dependencies from
+official Hermes source `pyproject.toml`. Hermes itself is imported through
+`PYTHONPATH`, not installed as a Hermes wheel: its regular installer metadata
+does not declare the full source dependency set.
 
 CI rejects modifications to the upstream `pyproject.toml` and `uv.lock`, and checks the installed SDK against the original Hermes `acp` declaration as well as the installed provider's metadata. Before inference scenarios, `.github/scripts/smoke_discovery.py` verifies the installed wheel import, enabled entry-point discovery, and native OMP ACP model catalog in temporary homes without a completion/model call. This smoke uses a local fixture model with no credentials and no inference endpoint.
+
+CI also runs `uv pip check`. A nonzero report is accepted only when Hermes's
+`pm.pip_check` helper accounts for every incompatibility through the official
+lock's declared overrides. Unrecognized reports fail; without that helper the
+raw failure is retained. There is no separate SDK-version matrix because these
+official compatibility points pin 0.9.0.
 
 The provider wheel's native integration suite starts with `omp-acp-provider` already enabled in a temporary Hermes configuration. A separate PM Git-install job exercises the official installation lifecycle rather than treating that wheel setup as admission proof.
 
@@ -40,6 +64,8 @@ uv run --no-project --python 3.14 python .github/scripts/smoke_pm_install.py \
   --hermes-source /path/to/unmodified/hermes-0.22.5
 ```
 
+### Native runtime and ACP regression coverage
+
 CI builds and installs the wheel, then runs the ACP regression suite and native OMP integration suite. The native tests use a local OpenAI-compatible model endpoint to exercise provider discovery, model-picker availability, model selection, async responses, native file reading, MCP tool execution, and Hermes CLI output without external credentials.
 
 Each integration scenario uses temporary Hermes and OMP homes. The model endpoint requests a file read or a stdio MCP tool call, then produces its response from the fresh token returned by actual OMP tool execution. The token is not supplied in the initial prompt.
@@ -65,9 +91,15 @@ Lifecycle regressions use peer readiness gates to establish overlapping sessions
 
 The version and description come from [`plugin.yaml`](../plugin.yaml), not static fields in `pyproject.toml`. See [Build the distribution](../CONTRIBUTING.md#build-the-distribution) for the metadata hook and local build/check commands.
 
-Local packaging checks for release 0.2.0 built an sdist and then a wheel from that sdist. Both artifacts passed `twine check --strict`. A disposable environment installation confirmed that the wheel's version and Summary match the manifest and that PyYAML is not a runtime requirement.
+Recorded local checks for release 0.2.0 built an sdist, then a wheel from that
+sdist; both passed `twine check --strict`. A disposable installation confirmed
+manifest-matching version/Summary and no PyYAML runtime dependency.
 
-The release preparation script accepted `v0.2.0` and rejected the mismatched tags `v0.1.0` and `v0.2.0rc1`, as well as the malformed tag `0.2.0`. Running it with a temporary GitHub output file also succeeded. These checks did not publish to TestPyPI or PyPI and do not replace installed-package validation in Hermes.
+The release preparation script accepted `v0.2.0`, rejected mismatched
+`v0.1.0`/`v0.2.0rc1` and malformed `0.2.0`, and wrote a temporary GitHub output
+file. These are historical results, not validation of the current revision or
+publication to either index. Follow the current
+[release procedure](../CONTRIBUTING.md#publish-the-provider-distribution).
 
 ## Minimum-version boundaries
 

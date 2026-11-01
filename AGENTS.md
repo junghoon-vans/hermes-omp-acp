@@ -6,10 +6,10 @@ These instructions apply to the entire repository. `AGENTS.md` is the canonical
 agent guide; `HERMES.md` and `CLAUDE.md` are relative symlinks to it. Edit this file
 rather than replacing either symlink with a separate copy.
 
-Read [README.md](README.md) for installation, configuration, supported versions,
-and user-facing behavior. Read [CONTRIBUTING.md](CONTRIBUTING.md) for development,
-verification, and publishing procedures. Keep this guide focused on agent work;
-do not duplicate those documents here.
+Read [README.md](README.md) for the quick start and documentation navigation,
+and [docs/configuration.md](docs/configuration.md) for installation and settings.
+Read [CONTRIBUTING.md](CONTRIBUTING.md) for development, verification, and
+publishing procedures. Keep this guide focused on agent work.
 
 ## Repository map
 
@@ -25,8 +25,8 @@ do not duplicate those documents here.
 - `tests/test_provider.py` and `tests/acp_peer.py`: deterministic provider tests
   and their ACP peer.
 - `tests/integration/`: native OMP integration scenarios.
-- `docs/model-provider/`: implementation details, limitations, troubleshooting,
-  and verification scope.
+- `docs/`: user configuration, limitations, troubleshooting, and optional skill
+  guides; `implementation.md` and `verification.md` are contributor references.
 - `.github/workflows/`: compatibility CI and distribution publishing.
 
 ## Implementation boundaries
